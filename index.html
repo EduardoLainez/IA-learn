@@ -7,6 +7,10 @@
     body { font-family: sans-serif; text-align: center; margin: 0; }
     #controls { margin: 20px; }
     canvas { background: #e0e0e0; display: block; margin: 0 auto; border: 2px solid #444; }
+    #autoModeBtn.active {
+      background: blue;
+      color: white;
+    }
   </style>
 </head>
 <body>
@@ -16,6 +20,7 @@
     <input id="numCars" type="number" min="1" max="50" value="10" style="width: 60px;">
     <button onclick="entrenar()">Correr carrera</button>
     <button onclick="volverHacerCarrera()">Volver a hacer carrera</button>
+    <button id="autoModeBtn">Modo Automático</button>
   </div>
   <canvas id="game" width="800" height="400"></canvas>
   <script>
@@ -187,11 +192,9 @@
 
     // Correr carrera - SIEMPRE empieza desde cero pero usa el mejor récord global para comparación
     function entrenar() {
-      // Creamos nuevos coches desde cero
       const n = parseInt(document.getElementById("numCars").value, 10);
       const generaciones = 1; // Solo una generación
 
-      // Siempre cargamos el récord global al principio
       let mente = cargarMenteGlobal();
       let bestPath = mente.path;
       let bestDistance = mente.distance;
@@ -276,15 +279,15 @@
     }
 
     // Volver a hacer carrera - SIEMPRE usa el récord global para los nuevos coches y solo lo actualiza si es superado
-    function volverHacerCarrera() {
+    function volverHacerCarrera(onFinish) {
       const n = parseInt(document.getElementById("numCars").value, 10);
 
       if (!lastBestCars) {
         alert("Primero corre una carrera para que haya mejores coches de referencia.");
+        if (typeof onFinish === 'function') onFinish();
         return;
       }
 
-      // SIEMPRE cargamos el récord global y lo usamos como referencia
       let mente = cargarMenteGlobal();
       let bestPath = mente.path;
       let bestDistance = mente.distance;
@@ -360,11 +363,35 @@
 
             // Guardamos los mejores para referencia de la siguiente carrera
             lastBestCars = coches.slice(0, Math.max(3, Math.floor(coches.length / 4)));
+
+            if (typeof onFinish === 'function') onFinish();
           }
         }
         moverCoches();
       }
       ejecutarGeneracion(0);
+    }
+
+    // Modo automático
+    let autoMode = false;
+    let autoModeTimeout = null;
+    const autoModeBtn = document.getElementById('autoModeBtn');
+    autoModeBtn.addEventListener('click', function() {
+      autoMode = !autoMode;
+      if (autoMode) {
+        autoModeBtn.classList.add("active");
+        startAutoMode();
+      } else {
+        autoModeBtn.classList.remove("active");
+        if (autoModeTimeout) clearTimeout(autoModeTimeout);
+      }
+    });
+
+    function startAutoMode() {
+      if (!autoMode) return;
+      volverHacerCarrera(() => {
+        autoModeTimeout = setTimeout(startAutoMode, 200); // puedes ajustar el tiempo aquí (ms)
+      });
     }
 
     // Solo dibuja la pista al cargar. ¡No inicia ninguna carrera automáticamente!
