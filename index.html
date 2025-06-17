@@ -183,19 +183,18 @@
       localStorage.removeItem("menteGlobalDist");
     }
 
-    let bestPath = null;
-    let bestDistance = Infinity;
     let lastBestCars = null;
 
-    // MODIFICADO: solo una generación al correr carrera
+    // Correr carrera - SIEMPRE empieza desde cero pero usa el mejor récord global para comparación
     function entrenar() {
-      borrarMenteGlobal();
+      // Creamos nuevos coches desde cero
       const n = parseInt(document.getElementById("numCars").value, 10);
       const generaciones = 1; // Solo una generación
 
+      // Siempre cargamos el récord global al principio
       let mente = cargarMenteGlobal();
-      bestPath = mente.path;
-      bestDistance = mente.distance;
+      let bestPath = mente.path;
+      let bestDistance = mente.distance;
       lastBestCars = null;
 
       function ejecutarGeneracion(gen) {
@@ -259,16 +258,16 @@
               if (i >= 0) coches[i].score -= 200;
             }
 
-            if (coches[0].score > 0) {
-              if (!bestPath || distancia(coches[0].pos, goal) < bestDistance) {
-                bestPath = coches[0].path;
-                bestDistance = distancia(coches[0].pos, goal);
-                guardarMenteGlobal(bestPath, bestDistance);
-              }
+            // Si el mejor coche de esta carrera supera el récord global, lo actualizamos
+            let mejorCoche = coches[0];
+            let mejorDistanciaActual = distancia(mejorCoche.pos, goal);
+            if (mejorCoche.score > 0 && (bestPath === null || mejorDistanciaActual < bestDistance)) {
+              bestPath = mejorCoche.path;
+              bestDistance = mejorDistanciaActual;
+              guardarMenteGlobal(bestPath, bestDistance);
             }
-
+            // Guardamos los mejores para referencia de la siguiente carrera
             lastBestCars = coches.slice(0, Math.max(3, Math.floor(coches.length / 4)));
-            // Solo una generación, no repetir
           }
         }
         moverCoches();
@@ -276,6 +275,7 @@
       ejecutarGeneracion(0);
     }
 
+    // Volver a hacer carrera - SIEMPRE usa el récord global para los nuevos coches y solo lo actualiza si es superado
     function volverHacerCarrera() {
       const n = parseInt(document.getElementById("numCars").value, 10);
 
@@ -284,9 +284,10 @@
         return;
       }
 
+      // SIEMPRE cargamos el récord global y lo usamos como referencia
       let mente = cargarMenteGlobal();
-      bestPath = mente.path;
-      bestDistance = mente.distance;
+      let bestPath = mente.path;
+      let bestDistance = mente.distance;
 
       function ejecutarGeneracion(gen) {
         let coches = generarCoches(n, lastBestCars, bestPath);
@@ -348,14 +349,16 @@
               if (i >= 0) coches[i].score -= 200;
             }
 
-            if (coches[0].score > 0) {
-              if (!bestPath || distancia(coches[0].pos, goal) < bestDistance) {
-                bestPath = coches[0].path;
-                bestDistance = distancia(coches[0].pos, goal);
-                guardarMenteGlobal(bestPath, bestDistance);
-              }
+            // Si el mejor coche de esta carrera supera el récord global, lo actualizamos
+            let mejorCoche = coches[0];
+            let mejorDistanciaActual = distancia(mejorCoche.pos, goal);
+            if (mejorCoche.score > 0 && (bestPath === null || mejorDistanciaActual < bestDistance)) {
+              bestPath = mejorCoche.path;
+              bestDistance = mejorDistanciaActual;
+              guardarMenteGlobal(bestPath, bestDistance);
             }
 
+            // Guardamos los mejores para referencia de la siguiente carrera
             lastBestCars = coches.slice(0, Math.max(3, Math.floor(coches.length / 4)));
           }
         }
