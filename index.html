@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>IA por intento y error</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin: 0; }
+    canvas { background: #f0f0f0; display: block; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <h2>IA que aprende por prueba y error (cercanía a meta)</h2>
+  <canvas id="game" width="400" height="400"></canvas>
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const gridSize = 10;
+    const tileSize = canvas.width / gridSize;
+
+    const start = { x: 0, y: 0 };
+    const goal = { x: 9, y: 9 };
+
+    let bestPath = null;
+    let bestDistance = Infinity;
+
+    const directions = [
+      { x: 1, y: 0 },   // derecha
+      { x: -1, y: 0 },  // izquierda
+      { x: 0, y: 1 },   // abajo
+      { x: 0, y: -1 }   // arriba
+    ];
+
+    function drawGrid(agent, path = []) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Cuadrícula
+      ctx.strokeStyle = "#ccc";
+      for (let i = 0; i <= gridSize; i++) {
+        ctx.beginPath();
+        ctx.moveTo(0, i * tileSize);
+        ctx.lineTo(canvas.width, i * tileSize);
+        ctx.moveTo(i * tileSize, 0);
+        ctx.lineTo(i * tileSize, canvas.height);
+        ctx.stroke();
+      }
+
+      // Meta
+      ctx.fillStyle = "green";
+      ctx.fillRect(goal.x * tileSize, goal.y * tileSize, tileSize, tileSize);
+
+      // Camino
+      ctx.fillStyle = "orange";
+      for (let p of path) {
+        ctx.fillRect(p.x * tileSize + tileSize/4, p.y * tileSize + tileSize/4, tileSize/2, tileSize/2);
+      }
+
+      // Agente
+      ctx.fillStyle = "blue";
+      ctx.fillRect(agent.x * tileSize, agent.y * tileSize, tileSize, tileSize);
+    }
+
+    function distancia(a, b) {
+      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    }
+
+    function moverIA() {
+      let pos = { ...start };
+      let path = [];
+      let steps = 20;
+
+      for (let i = 0; i < steps; i++) {
+        let dir;
+        if (bestPath && Math.random() < 0.7 && bestPath[i]) {
+          dir = bestPath[i]; // seguir parcialmente la mejor ruta
+        } else {
+          dir = directions[Math.floor(Math.random() * directions.length)];
+        }
+
+        let nuevaX = pos.x + dir.x;
+        let nuevaY = pos.y + dir.y;
+
+        // Limitar al grid
+        if (nuevaX >= 0 && nuevaX < gridSize && nuevaY >= 0 && nuevaY < gridSize) {
+          pos = { x: nuevaX, y: nuevaY };
+          path.push(dir);
+        }
+      }
+
+      let d = distancia(pos, goal);
+      if (d < bestDistance) {
+        bestDistance = d;
+        bestPath = path;
+        console.log("¡Nueva mejor ruta! Distancia:", bestDistance);
+      }
+
+      // reconstruir camino visual
+      let replay = [];
+      let posReplay = { ...start };
+      for (let dir of path) {
+        posReplay = { x: posReplay.x + dir.x, y: posReplay.y + dir.y };
+        replay.push({ ...posReplay });
+      }
+
+      drawGrid(pos, replay);
+    }
+
+    setInterval(moverIA, 300); // nuevo intento cada 300 ms
+  </script>
+</body>
+</html>
