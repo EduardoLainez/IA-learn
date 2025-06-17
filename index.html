@@ -26,7 +26,6 @@
     const numSteps = 90;
 
     // --------------------- PISTA COMPLEJA ---------------------
-    // Definimos la pista como un array de puntos centrales de la pista
     const trackPath = [
       {x: 80, y: 200},
       {x: 200, y: 160},
@@ -79,11 +78,9 @@
     }
 
     // ----------------- DETECCIÓN DE CHOQUE -------------------
-    // Calcula la distancia del coche al centro de la pista más cercano
     function carOnTrack(x, y) {
       let minDist = Infinity;
       for(let i=0; i<trackPath.length-1; i++) {
-        // Proyección del coche sobre el segmento de pista
         let ax = trackPath[i].x, ay = trackPath[i].y;
         let bx = trackPath[i+1].x, by = trackPath[i+1].y;
         let dx = bx-ax, dy = by-ay;
@@ -94,7 +91,7 @@
         let dist = Math.sqrt((x-px)**2 + (y-py)**2);
         if(dist<minDist) minDist = dist;
       }
-      return minDist <= TRACK_WIDTH/2 - 5; // margen pequeño
+      return minDist <= TRACK_WIDTH/2 - 5;
     }
 
     // --------------------- RESTO DEL CÓDIGO ---------------------
@@ -152,7 +149,8 @@
       });
     }
 
-    function generarCoches(n, heredanDe = null) {
+    // -------------------- MODIFICADO AQUÍ --------------------
+    function generarCoches(n, heredanDe = null, bestPath = null) {
       let coches = [];
       for (let i = 0; i < n; i++) {
         let coche = {
@@ -165,8 +163,17 @@
           score: 0,
           crashed: false
         };
-        if (heredanDe && heredanDe[i]) {
+        // Siempre algunos coches heredan del bestPath global
+        if (bestPath && (i === 0 || Math.random() < 0.3)) {
+          coche.path = mutarPath(bestPath);
+        }
+        // Otros heredan de los mejores de la última carrera
+        else if (heredanDe && heredanDe[i]) {
           coche.path = mutarPath(heredanDe[i].path);
+        }
+        // Si no, camino aleatorio
+        else {
+          coche.path = [];
         }
         coches.push(coche);
       }
@@ -198,7 +205,8 @@
       lastBestCars = null;
 
       function ejecutarGeneracion(gen) {
-        let coches = generarCoches(n);
+        // -------------------- MODIFICADO AQUÍ --------------------
+        let coches = generarCoches(n, null, bestPath);
         let paso = 0;
         let carreraTerminada = false;
 
@@ -211,7 +219,9 @@
           for (let car of coches) {
             if (!car.terminado && !car.crashed && paso < numSteps) {
               let dir;
-              if (bestPath && Math.random() < 0.7 && bestPath[paso]) {
+              if (car.path[paso]) {
+                dir = car.path[paso];
+              } else if (bestPath && Math.random() < 0.7 && bestPath[paso]) {
                 dir = bestPath[paso];
               } else {
                 dir = randomDirection();
@@ -226,7 +236,7 @@
               if (!carOnTrack(car.pos.x, car.pos.y)) {
                 car.crashed = true;
                 car.terminado = true;
-                car.score -= 100; // penalización
+                car.score -= 100;
               }
 
               if (distancia(car.pos, goal) < 16) car.terminado = true;
@@ -249,11 +259,10 @@
               } else {
                 car.score = Math.max(0, 500 - d);
               }
-              if (car.crashed) car.score -= 100; // castigo final si chocó
+              if (car.crashed) car.score -= 100;
             }
             coches.sort((a, b) => b.score - a.score);
 
-            // Penaliza a los 3 peores coches
             for (let i = coches.length - 3; i < coches.length; i++) {
               if (i >= 0) coches[i].score -= 200;
             }
@@ -287,7 +296,8 @@
       bestDistance = mente.distance;
 
       function ejecutarGeneracion(gen) {
-        let coches = generarCoches(n, lastBestCars);
+        // -------------------- MODIFICADO AQUÍ --------------------
+        let coches = generarCoches(n, lastBestCars, bestPath);
         let paso = 0;
         let carreraTerminada = false;
 
