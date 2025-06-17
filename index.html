@@ -28,7 +28,7 @@
     let bestDistance = Infinity;
 
     function drawTrack() {
-      // Pista recta (puedes dibujar curvas si quieres)
+      // Pista recta
       ctx.strokeStyle = "#222";
       ctx.lineWidth = 32;
       ctx.beginPath();
@@ -107,7 +107,8 @@
           path: [],
           trail: [{ x: start.x, y: start.y }],
           color: `hsl(${(i * 360) / n}, 80%, 50%)`,
-          terminado: false
+          terminado: false,
+          score: 0
         });
       }
       return coches;
@@ -115,56 +116,85 @@
 
     function entrenar() {
       const n = parseInt(document.getElementById("numCars").value, 10);
-      let coches = generarCoches(n);
-
-      let paso = 0;
+      const generaciones = 10; // Número de rondas/generaciones
+      bestPath = null;
       bestDistance = Infinity;
 
-      function moverCoches() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        drawTrack();
+      function ejecutarGeneracion(gen) {
+        let coches = generarCoches(n);
+        let paso = 0;
 
-        // Meta
-        ctx.fillStyle = "#00ff00";
-        ctx.fillRect(goal.x - 12, goal.y - 20, 24, 40);
+        function moverCoches() {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          drawTrack();
 
-        let algunoMoviendo = false;
+          // Meta verde
+          ctx.fillStyle = "#00ff00";
+          ctx.fillRect(goal.x - 12, goal.y - 20, 24, 40);
 
-        for (let car of coches) {
-          if (!car.terminado && paso < numSteps) {
-            let dir;
-            if (bestPath && Math.random() < 0.7 && bestPath[paso]) {
-              dir = bestPath[paso];
-            } else {
-              dir = randomDirection();
-            }
-            car.angle += dir.da;
-            car.pos.x += dir.dx * Math.cos(car.angle);
-            car.pos.y += dir.dx * Math.sin(car.angle) + dir.dy;
-            car.path.push({ dx: dir.dx, dy: dir.dy, da: dir.da });
-            car.trail.push({ x: car.pos.x, y: car.pos.y });
-            if (distancia(car.pos, goal) < 16) car.terminado = true;
-            algunoMoviendo = true;
-          }
-          drawTrail(car.trail, car.color);
-          drawCar(car.pos.x, car.pos.y, car.color, car.angle);
-        }
+          let algunoMoviendo = false;
 
-        paso++;
-        if (algunoMoviendo && paso <= numSteps) {
-          requestAnimationFrame(moverCoches);
-        } else {
-          // Busca el mejor coche
           for (let car of coches) {
-            let d = distancia(car.pos, goal);
-            if (d < bestDistance) {
-              bestDistance = d;
-              bestPath = car.path;
+            if (!car.terminado && paso < numSteps) {
+              let dir;
+              if (bestPath && Math.random() < 0.7 && bestPath[paso]) {
+                dir = bestPath[paso];
+              } else {
+                dir = randomDirection();
+              }
+              car.angle += dir.da;
+              car.pos.x += dir.dx * Math.cos(car.angle);
+              car.pos.y += dir.dx * Math.sin(car.angle) + dir.dy;
+              car.path.push({ dx: dir.dx, dy: dir.dy, da: dir.da });
+              car.trail.push({ x: car.pos.x, y: car.pos.y });
+              if (distancia(car.pos, goal) < 16) car.terminado = true;
+              algunoMoviendo = true;
+            }
+            drawTrail(car.trail, car.color);
+            drawCar(car.pos.x, car.pos.y, car.color, car.angle);
+          }
+
+          paso++;
+          if (algunoMoviendo && paso <= numSteps) {
+            requestAnimationFrame(moverCoches);
+          } else {
+            // PREMIOS Y CASTIGOS
+            for (let car of coches) {
+              let d = distancia(car.pos, goal);
+
+              // Premio grande si llega a la meta (toca lo verde)
+              if (d < 16) {
+                car.score = 1000 - car.trail.length; // Gran premio; menos pasos mejor
+              } else {
+                // Premio proporcional a la cercanía
+                car.score = Math.max(0, 500 - d);
+              }
+            }
+
+            // Ordenar coches por puntaje (de mayor a menor)
+            coches.sort((a, b) => b.score - a.score);
+
+            // Castigar a los 3 últimos (más lejos de la meta)
+            for (let i = coches.length - 3; i < coches.length; i++) {
+              if (i >= 0) coches[i].score -= 200; // castigo
+            }
+
+            // Seleccionar el mejor para la siguiente generación
+            if (coches[0].score > 0) {
+              bestPath = coches[0].path;
+              bestDistance = distancia(coches[0].pos, goal);
+            }
+
+            // Siguiente generación
+            if (gen < generaciones - 1) {
+              setTimeout(() => ejecutarGeneracion(gen + 1), 500); // Pausa entre generaciones
             }
           }
         }
+        moverCoches();
       }
-      moverCoches();
+
+      ejecutarGeneracion(0);
     }
 
     // Pista inicial
