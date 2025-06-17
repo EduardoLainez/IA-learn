@@ -24,11 +24,23 @@
     const goal = { x: 740, y: 200 };
     const numSteps = 60;
 
+    // --------------------- MENTE GLOBAL ---------------------
+    function guardarMenteGlobal(path, distance) {
+      localStorage.setItem("menteGlobalPath", JSON.stringify(path));
+      localStorage.setItem("menteGlobalDist", distance);
+    }
+    function cargarMenteGlobal() {
+      return {
+        path: JSON.parse(localStorage.getItem("menteGlobalPath") || "null"),
+        distance: Number(localStorage.getItem("menteGlobalDist") || "Infinity")
+      };
+    }
+    // -------------------------------------------------------
+
     let bestPath = null;
     let bestDistance = Infinity;
 
     function drawTrack() {
-      // Pista recta
       ctx.strokeStyle = "#222";
       ctx.lineWidth = 32;
       ctx.beginPath();
@@ -36,7 +48,6 @@
       ctx.lineTo(goal.x, goal.y);
       ctx.stroke();
 
-      // Bordes blancos
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 4;
       ctx.beginPath();
@@ -46,7 +57,6 @@
       ctx.lineTo(goal.x, goal.y + 16);
       ctx.stroke();
 
-      // Meta
       ctx.fillStyle = "green";
       ctx.fillRect(goal.x - 12, goal.y - 20, 24, 40);
       ctx.fillStyle = "#fff";
@@ -59,12 +69,12 @@
       ctx.translate(x, y);
       ctx.rotate(angle);
       ctx.fillStyle = color;
-      ctx.fillRect(-14, -7, 28, 14); // cuerpo
+      ctx.fillRect(-14, -7, 28, 14);
       ctx.fillStyle = "#222";
-      ctx.fillRect(-6, -5, 12, 10); // cabina
+      ctx.fillRect(-6, -5, 12, 10);
       ctx.fillStyle = "#555";
-      ctx.fillRect(-16, -3, 4, 6); // spoiler delantero
-      ctx.fillRect(12, -3, 6, 6);  // spoiler trasero
+      ctx.fillRect(-16, -3, 4, 6);
+      ctx.fillRect(12, -3, 6, 6);
       ctx.restore();
     }
 
@@ -116,9 +126,12 @@
 
     function entrenar() {
       const n = parseInt(document.getElementById("numCars").value, 10);
-      const generaciones = 10; // Número de rondas/generaciones
-      bestPath = null;
-      bestDistance = Infinity;
+      const generaciones = 10;
+
+      // ¡Cargar la mente global antes de entrenar!
+      let mente = cargarMenteGlobal();
+      bestPath = mente.path;
+      bestDistance = mente.distance;
 
       function ejecutarGeneracion(gen) {
         let coches = generarCoches(n);
@@ -128,7 +141,6 @@
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           drawTrack();
 
-          // Meta verde
           ctx.fillStyle = "#00ff00";
           ctx.fillRect(goal.x - 12, goal.y - 20, 24, 40);
 
@@ -158,36 +170,28 @@
           if (algunoMoviendo && paso <= numSteps) {
             requestAnimationFrame(moverCoches);
           } else {
-            // PREMIOS Y CASTIGOS
             for (let car of coches) {
               let d = distancia(car.pos, goal);
-
-              // Premio grande si llega a la meta (toca lo verde)
               if (d < 16) {
-                car.score = 1000 - car.trail.length; // Gran premio; menos pasos mejor
+                car.score = 1000 - car.trail.length;
               } else {
-                // Premio proporcional a la cercanía
                 car.score = Math.max(0, 500 - d);
               }
             }
-
-            // Ordenar coches por puntaje (de mayor a menor)
             coches.sort((a, b) => b.score - a.score);
-
-            // Castigar a los 3 últimos (más lejos de la meta)
             for (let i = coches.length - 3; i < coches.length; i++) {
-              if (i >= 0) coches[i].score -= 200; // castigo
+              if (i >= 0) coches[i].score -= 200;
             }
-
-            // Seleccionar el mejor para la siguiente generación
             if (coches[0].score > 0) {
-              bestPath = coches[0].path;
-              bestDistance = distancia(coches[0].pos, goal);
+              // Si aprende algo mejor que la mente global, la actualiza
+              if (!bestPath || distancia(coches[0].pos, goal) < bestDistance) {
+                bestPath = coches[0].path;
+                bestDistance = distancia(coches[0].pos, goal);
+                guardarMenteGlobal(bestPath, bestDistance);
+              }
             }
-
-            // Siguiente generación
             if (gen < generaciones - 1) {
-              setTimeout(() => ejecutarGeneracion(gen + 1), 500); // Pausa entre generaciones
+              setTimeout(() => ejecutarGeneracion(gen + 1), 500);
             }
           }
         }
