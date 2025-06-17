@@ -2,110 +2,174 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>IA por intento y error</title>
+  <title>Carrera IA F1</title>
   <style>
     body { font-family: sans-serif; text-align: center; margin: 0; }
-    canvas { background: #f0f0f0; display: block; margin: 0 auto; }
+    #controls { margin: 20px; }
+    canvas { background: #e0e0e0; display: block; margin: 0 auto; border: 2px solid #444; }
   </style>
 </head>
 <body>
-  <h2>IA que aprende por prueba y error (cercanía a meta)</h2>
-  <canvas id="game" width="400" height="400"></canvas>
+  <h2>Carrera IA F1: Entrena tus coches</h2>
+  <div id="controls">
+    <label for="numCars">Número de IAs: </label>
+    <input id="numCars" type="number" min="1" max="50" value="10" style="width: 60px;">
+    <button onclick="entrenar()">Correr carrera</button>
+  </div>
+  <canvas id="game" width="800" height="400"></canvas>
   <script>
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
-
-    const gridSize = 10;
-    const tileSize = canvas.width / gridSize;
-
-    const start = { x: 0, y: 0 };
-    const goal = { x: 9, y: 9 };
+    const start = { x: 60, y: 200 };
+    const goal = { x: 740, y: 200 };
+    const numSteps = 60;
 
     let bestPath = null;
     let bestDistance = Infinity;
 
-    const directions = [
-      { x: 1, y: 0 },   // derecha
-      { x: -1, y: 0 },  // izquierda
-      { x: 0, y: 1 },   // abajo
-      { x: 0, y: -1 }   // arriba
-    ];
+    function drawTrack() {
+      // Pista recta (puedes dibujar curvas si quieres)
+      ctx.strokeStyle = "#222";
+      ctx.lineWidth = 32;
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(goal.x, goal.y);
+      ctx.stroke();
 
-    function drawGrid(agent, path = []) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Cuadrícula
-      ctx.strokeStyle = "#ccc";
-      for (let i = 0; i <= gridSize; i++) {
-        ctx.beginPath();
-        ctx.moveTo(0, i * tileSize);
-        ctx.lineTo(canvas.width, i * tileSize);
-        ctx.moveTo(i * tileSize, 0);
-        ctx.lineTo(i * tileSize, canvas.height);
-        ctx.stroke();
-      }
+      // Bordes blancos
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y - 16);
+      ctx.lineTo(goal.x, goal.y - 16);
+      ctx.moveTo(start.x, start.y + 16);
+      ctx.lineTo(goal.x, goal.y + 16);
+      ctx.stroke();
 
       // Meta
       ctx.fillStyle = "green";
-      ctx.fillRect(goal.x * tileSize, goal.y * tileSize, tileSize, tileSize);
+      ctx.fillRect(goal.x - 12, goal.y - 20, 24, 40);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(goal.x - 12, goal.y - 20, 24, 10);
+      ctx.fillRect(goal.x - 12, goal.y + 10, 24, 10);
+    }
 
-      // Camino
-      ctx.fillStyle = "orange";
-      for (let p of path) {
-        ctx.fillRect(p.x * tileSize + tileSize/4, p.y * tileSize + tileSize/4, tileSize/2, tileSize/2);
+    function drawCar(x, y, color, angle = 0) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.fillStyle = color;
+      ctx.fillRect(-14, -7, 28, 14); // cuerpo
+      ctx.fillStyle = "#222";
+      ctx.fillRect(-6, -5, 12, 10); // cabina
+      ctx.fillStyle = "#555";
+      ctx.fillRect(-16, -3, 4, 6); // spoiler delantero
+      ctx.fillRect(12, -3, 6, 6);  // spoiler trasero
+      ctx.restore();
+    }
+
+    function drawTrail(trail, color) {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.4;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      if (trail.length > 0) {
+        ctx.moveTo(trail[0].x, trail[0].y);
+        for (let p of trail) ctx.lineTo(p.x, p.y);
       }
-
-      // Agente
-      ctx.fillStyle = "blue";
-      ctx.fillRect(agent.x * tileSize, agent.y * tileSize, tileSize, tileSize);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.restore();
     }
 
     function distancia(a, b) {
-      return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+      return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
     }
 
-    function moverIA() {
-      let pos = { ...start };
-      let path = [];
-      let steps = 20;
+    function randomDirection() {
+      const base = 12;
+      return [
+        { dx: base, dy: 0, da: 0 },
+        { dx: base, dy: -4, da: -0.07 },
+        { dx: base, dy: 4, da: 0.07 },
+        { dx: base, dy: -8, da: -0.12 },
+        { dx: base, dy: 8, da: 0.12 }
+      ][Math.floor(Math.random() * 5)];
+    }
 
-      for (let i = 0; i < steps; i++) {
-        let dir;
-        if (bestPath && Math.random() < 0.7 && bestPath[i]) {
-          dir = bestPath[i]; // seguir parcialmente la mejor ruta
+    function generarCoches(n) {
+      let coches = [];
+      for (let i = 0; i < n; i++) {
+        coches.push({
+          pos: { x: start.x, y: start.y },
+          angle: 0,
+          path: [],
+          trail: [{ x: start.x, y: start.y }],
+          color: `hsl(${(i * 360) / n}, 80%, 50%)`,
+          terminado: false
+        });
+      }
+      return coches;
+    }
+
+    function entrenar() {
+      const n = parseInt(document.getElementById("numCars").value, 10);
+      let coches = generarCoches(n);
+
+      let paso = 0;
+      bestDistance = Infinity;
+
+      function moverCoches() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawTrack();
+
+        // Meta
+        ctx.fillStyle = "#00ff00";
+        ctx.fillRect(goal.x - 12, goal.y - 20, 24, 40);
+
+        let algunoMoviendo = false;
+
+        for (let car of coches) {
+          if (!car.terminado && paso < numSteps) {
+            let dir;
+            if (bestPath && Math.random() < 0.7 && bestPath[paso]) {
+              dir = bestPath[paso];
+            } else {
+              dir = randomDirection();
+            }
+            car.angle += dir.da;
+            car.pos.x += dir.dx * Math.cos(car.angle);
+            car.pos.y += dir.dx * Math.sin(car.angle) + dir.dy;
+            car.path.push({ dx: dir.dx, dy: dir.dy, da: dir.da });
+            car.trail.push({ x: car.pos.x, y: car.pos.y });
+            if (distancia(car.pos, goal) < 16) car.terminado = true;
+            algunoMoviendo = true;
+          }
+          drawTrail(car.trail, car.color);
+          drawCar(car.pos.x, car.pos.y, car.color, car.angle);
+        }
+
+        paso++;
+        if (algunoMoviendo && paso <= numSteps) {
+          requestAnimationFrame(moverCoches);
         } else {
-          dir = directions[Math.floor(Math.random() * directions.length)];
-        }
-
-        let nuevaX = pos.x + dir.x;
-        let nuevaY = pos.y + dir.y;
-
-        // Limitar al grid
-        if (nuevaX >= 0 && nuevaX < gridSize && nuevaY >= 0 && nuevaY < gridSize) {
-          pos = { x: nuevaX, y: nuevaY };
-          path.push(dir);
+          // Busca el mejor coche
+          for (let car of coches) {
+            let d = distancia(car.pos, goal);
+            if (d < bestDistance) {
+              bestDistance = d;
+              bestPath = car.path;
+            }
+          }
         }
       }
-
-      let d = distancia(pos, goal);
-      if (d < bestDistance) {
-        bestDistance = d;
-        bestPath = path;
-        console.log("¡Nueva mejor ruta! Distancia:", bestDistance);
-      }
-
-      // reconstruir camino visual
-      let replay = [];
-      let posReplay = { ...start };
-      for (let dir of path) {
-        posReplay = { x: posReplay.x + dir.x, y: posReplay.y + dir.y };
-        replay.push({ ...posReplay });
-      }
-
-      drawGrid(pos, replay);
+      moverCoches();
     }
 
-    setInterval(moverIA, 300); // nuevo intento cada 300 ms
+    // Pista inicial
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawTrack();
   </script>
 </body>
 </html>
