@@ -187,10 +187,11 @@
     let bestDistance = Infinity;
     let lastBestCars = null;
 
+    // MODIFICADO: solo una generación al correr carrera
     function entrenar() {
       borrarMenteGlobal();
       const n = parseInt(document.getElementById("numCars").value, 10);
-      const generaciones = 10;
+      const generaciones = 1; // Solo una generación
 
       let mente = cargarMenteGlobal();
       bestPath = mente.path;
@@ -267,9 +268,7 @@
             }
 
             lastBestCars = coches.slice(0, Math.max(3, Math.floor(coches.length / 4)));
-            if (gen + 1 < generaciones) {
-              setTimeout(() => ejecutarGeneracion(gen + 1), 500);
-            }
+            // Solo una generación, no repetir
           }
         }
         moverCoches();
