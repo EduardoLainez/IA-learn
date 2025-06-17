@@ -138,16 +138,22 @@
       ][Math.floor(Math.random() * 5)];
     }
 
+    // Mutación más inteligente (probabilidad menor al principio y final)
     function mutarPath(path) {
       if (!path) return [];
-      return path.map(dir => {
-        if (Math.random() < 0.1) {
+      const total = path.length;
+      return path.map((dir, idx) => {
+        // Menos probabilidad de mutación en los primeros y últimos 20%
+        let prob = 0.1;
+        if (idx < total * 0.2 || idx > total * 0.8) prob = 0.03;
+        if (Math.random() < prob) {
           return randomDirection();
         }
         return { ...dir };
       });
     }
 
+    // Elitismo reforzado: la mitad de los coches heredan el mejor path
     function generarCoches(n, heredanDe = null, bestPath = null) {
       let coches = [];
       for (let i = 0; i < n; i++) {
@@ -161,7 +167,7 @@
           score: 0,
           crashed: false
         };
-        if (bestPath && (i === 0 || Math.random() < 0.3)) {
+        if (bestPath && (i < Math.floor(n/2))) { // NUEVO: la mitad hereda el mejor path
           coche.path = mutarPath(bestPath);
         } else if (heredanDe && heredanDe[i]) {
           coche.path = mutarPath(heredanDe[i].path);
