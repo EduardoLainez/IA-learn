@@ -25,7 +25,6 @@
     const goal = { x: 700, y: 320 };
     const numSteps = 90;
 
-    // --------------------- PISTA COMPLEJA ---------------------
     const trackPath = [
       {x: 80, y: 200},
       {x: 200, y: 160},
@@ -41,7 +40,6 @@
       ctx.save();
       ctx.clearRect(0,0,canvas.width,canvas.height);
 
-      // Dibuja la pista principal
       ctx.strokeStyle = "#222";
       ctx.lineWidth = TRACK_WIDTH;
       ctx.beginPath();
@@ -51,7 +49,6 @@
       }
       ctx.stroke();
 
-      // Líneas blancas "bordes"
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 4;
       ctx.beginPath();
@@ -59,7 +56,7 @@
         let dx = trackPath[i+1].x-trackPath[i].x;
         let dy = trackPath[i+1].y-trackPath[i].y;
         let len = Math.sqrt(dx*dx+dy*dy);
-        let nx = -dy/len, ny = dx/len; // perpendicular
+        let nx = -dy/len, ny = dx/len;
         ctx.moveTo(trackPath[i].x+nx*TRACK_WIDTH/2, trackPath[i].y+ny*TRACK_WIDTH/2);
         ctx.lineTo(trackPath[i+1].x+nx*TRACK_WIDTH/2, trackPath[i+1].y+ny*TRACK_WIDTH/2);
         ctx.moveTo(trackPath[i].x-nx*TRACK_WIDTH/2, trackPath[i].y-ny*TRACK_WIDTH/2);
@@ -67,7 +64,6 @@
       }
       ctx.stroke();
 
-      // Meta
       ctx.fillStyle = "green";
       ctx.fillRect(goal.x - 12, goal.y - 20, 24, 40);
       ctx.fillStyle = "#fff";
@@ -77,7 +73,6 @@
       ctx.restore();
     }
 
-    // ----------------- DETECCIÓN DE CHOQUE -------------------
     function carOnTrack(x, y) {
       let minDist = Infinity;
       for(let i=0; i<trackPath.length-1; i++) {
@@ -94,7 +89,6 @@
       return minDist <= TRACK_WIDTH/2 - 5;
     }
 
-    // --------------------- RESTO DEL CÓDIGO ---------------------
     function drawCar(x, y, color, angle = 0) {
       ctx.save();
       ctx.translate(x, y);
@@ -149,7 +143,6 @@
       });
     }
 
-    // -------------------- MODIFICADO AQUÍ --------------------
     function generarCoches(n, heredanDe = null, bestPath = null) {
       let coches = [];
       for (let i = 0; i < n; i++) {
@@ -163,16 +156,11 @@
           score: 0,
           crashed: false
         };
-        // Siempre algunos coches heredan del bestPath global
         if (bestPath && (i === 0 || Math.random() < 0.3)) {
           coche.path = mutarPath(bestPath);
-        }
-        // Otros heredan de los mejores de la última carrera
-        else if (heredanDe && heredanDe[i]) {
+        } else if (heredanDe && heredanDe[i]) {
           coche.path = mutarPath(heredanDe[i].path);
-        }
-        // Si no, camino aleatorio
-        else {
+        } else {
           coche.path = [];
         }
         coches.push(coche);
@@ -180,7 +168,6 @@
       return coches;
     }
 
-    // -------------------- FUNCIONES PARA MENTE GLOBAL --------------------
     function guardarMenteGlobal(path, distance) {
       localStorage.setItem("menteGlobalPath", JSON.stringify(path));
       localStorage.setItem("menteGlobalDist", distance);
@@ -191,7 +178,7 @@
         distance: Number(localStorage.getItem("menteGlobalDist") || "Infinity")
       };
     }
-    function borrarMenteGlobal() { // MODIFICADO: Se añade para borrar el global
+    function borrarMenteGlobal() {
       localStorage.removeItem("menteGlobalPath");
       localStorage.removeItem("menteGlobalDist");
     }
@@ -201,8 +188,7 @@
     let lastBestCars = null;
 
     function entrenar() {
-      borrarMenteGlobal(); // MODIFICADO: borra el global al empezar desde cero
-
+      borrarMenteGlobal();
       const n = parseInt(document.getElementById("numCars").value, 10);
       const generaciones = 10;
 
@@ -212,7 +198,6 @@
       lastBestCars = null;
 
       function ejecutarGeneracion(gen) {
-        // -------------------- MODIFICADO AQUÍ --------------------
         let coches = generarCoches(n, null, bestPath);
         let paso = 0;
         let carreraTerminada = false;
@@ -239,7 +224,6 @@
               car.path.push({ dx: dir.dx, dy: dir.dy, da: dir.da });
               car.trail.push({ x: car.pos.x, y: car.pos.y });
 
-              // Detecta si se sale del circuito
               if (!carOnTrack(car.pos.x, car.pos.y)) {
                 car.crashed = true;
                 car.terminado = true;
@@ -306,7 +290,6 @@
       bestDistance = mente.distance;
 
       function ejecutarGeneracion(gen) {
-        // -------------------- MODIFICADO AQUÍ --------------------
         let coches = generarCoches(n, lastBestCars, bestPath);
         let paso = 0;
         let carreraTerminada = false;
@@ -382,7 +365,7 @@
       ejecutarGeneracion(0);
     }
 
-    // Pista inicial
+    // Solo dibuja la pista al cargar. ¡No inicia ninguna carrera automáticamente!
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawTrack();
   </script>
