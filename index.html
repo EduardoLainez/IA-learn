@@ -11,10 +11,6 @@
       background: blue;
       color: white;
     }
-    #paintModeBtn.active {
-      background: green;
-      color: white;
-    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/synaptic@1.1.4/dist/synaptic.min.js"></script>
 </head>
@@ -25,79 +21,12 @@
     <input id="numCars" type="number" min="1" max="100" value="20" style="width: 60px;">
     <button onclick="iniciarCarrera()">Iniciar carrera</button>
     <button id="autoModeBtn">Modo Automático</button>
-    <button id="paintModeBtn">Modo Pintar: OFF</button>
-    <label>
-      <input type="checkbox" id="useCustomTrack">
-      Usar pista pintada
-    </label>
     <span id="genInfo"></span>
   </div>
   <canvas id="game" width="1200" height="400"></canvas>
   <script>
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
-
-    // --- Modo Pintar ---
-    let paintMode = false;
-    let painting = false;
-    let customTrack = [];
-    const paintModeBtn = document.getElementById('paintModeBtn');
-    const useCustomTrackBox = document.getElementById('useCustomTrack');
-
-    paintModeBtn.addEventListener('click', () => {
-      paintMode = !paintMode;
-      paintModeBtn.textContent = `Modo Pintar: ${paintMode ? 'ON' : 'OFF'}`;
-      if (paintMode) {
-        paintModeBtn.classList.add("active");
-        customTrack = [];
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        drawTracks();
-      } else {
-        paintModeBtn.classList.remove("active");
-      }
-    });
-
-    function getMousePos(e) {
-      const rect = canvas.getBoundingClientRect();
-      return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      };
-    }
-
-    canvas.addEventListener('mousedown', (e) => {
-      if (!paintMode) return;
-      painting = true;
-      const pos = getMousePos(e);
-      customTrack.push(pos);
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y);
-    });
-
-    canvas.addEventListener('mousemove', (e) => {
-      if (!painting || !paintMode) return;
-      const pos = getMousePos(e);
-      customTrack.push(pos);
-      ctx.lineTo(pos.x, pos.y);
-      ctx.strokeStyle = "#0a0";
-      ctx.lineWidth = 6;
-      ctx.stroke();
-    });
-
-    canvas.addEventListener('mouseup', (e) => {
-      if (!paintMode) return;
-      painting = false;
-      ctx.closePath();
-      if (customTrack.length > 1) {
-        ctx.beginPath();
-        ctx.moveTo(customTrack[0].x, customTrack[0].y);
-        for (let p of customTrack) ctx.lineTo(p.x, p.y);
-        ctx.strokeStyle = "#090";
-        ctx.lineWidth = 10;
-        ctx.stroke();
-        ctx.closePath();
-      }
-    });
 
     // --- Definición de pistas ---
     const pistaFacil = [
@@ -140,7 +69,7 @@
       return synaptic.Network.fromJSON(red.toJSON());
     }
     function crearCoche(color) {
-      let start = (useCustomTrackBox.checked && customTrack.length > 0) ? customTrack[0] : pistaFacil[0];
+      let start = pistaFacil[0];
       return {
         pos: { x: start.x, y: start.y },
         angle: 0,
@@ -207,19 +136,6 @@
       ctx.fillStyle = "purple";
       ctx.fillRect(pistaDificil[pistaDificil.length-1].x - 12, pistaDificil[pistaDificil.length-1].y - 20, 24, 40);
 
-      if (customTrack.length > 1) {
-        ctx.beginPath();
-        ctx.moveTo(customTrack[0].x, customTrack[0].y);
-        for(let i=1; i<customTrack.length; i++){
-          ctx.lineTo(customTrack[i].x, customTrack[i].y);
-        }
-        ctx.strokeStyle = "#0a0";
-        ctx.lineWidth = 14;
-        ctx.globalAlpha = 0.6;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-        ctx.closePath();
-      }
       ctx.restore();
     }
 
@@ -329,9 +245,8 @@
         drawTracks();
         let algunoMoviendo = false;
         for (let car of coches) {
-          let usarPersonalizada = useCustomTrackBox.checked && customTrack.length > 1;
-          let pista = usarPersonalizada ? customTrack : (car.fase === 0 ? pistaFacil : pistaDificil);
-          let ancho = usarPersonalizada ? 28 : TRACK_WIDTH;
+          let pista = (car.fase === 0 ? pistaFacil : pistaDificil);
+          let ancho = TRACK_WIDTH;
           let goal = pista[pista.length-1];
 
           if (!car.terminado && !car.crashed && paso < numSteps) {
@@ -371,37 +286,28 @@
             car.trail.push({ x: car.pos.x, y: car.pos.y });
 
             // --- RECOMPENSA MODIFICADA ---
-            // Si es pista pintada: recompensa solo por cercanía, NO se choca por alejarse
-            // Si es pista normal, mantiene lógica antigua
             let distLinea = distanciaAPista(car.pos.x, car.pos.y, pista);
-            if (usarPersonalizada) {
-              // Entre más cerca, más puntos (máx 10, mínimo 0)
-              let maxReward = 10;
-              let reward = Math.max(0, maxReward - distLinea);
-              car.score += reward;
+            if (distLinea < 10) {
+              car.score += 10;
+            } else if (distLinea < 20) {
+              car.score += 5;
+            } else if (distLinea < 35) {
+              car.score += 1;
             } else {
-              if (distLinea < 10) {
-                car.score += 10;
-              } else if (distLinea < 20) {
-                car.score += 5;
-              } else if (distLinea < 35) {
-                car.score += 1;
-              } else {
-                car.score -= 2;
-              }
-              if (distLinea > ancho/2 - 5) {
-                car.crashed = true;
-                car.terminado = true;
-                car.score -= 1000;
-                let distToGoal = distancia(car.pos, goal);
-                car.score -= distToGoal * 2;
-              }
+              car.score -= 2;
+            }
+            if (distLinea > ancho/2 - 5) {
+              car.crashed = true;
+              car.terminado = true;
+              car.score -= 1000;
+              let distToGoal = distancia(car.pos, goal);
+              car.score -= distToGoal * 2;
             }
             // --- FIN RECOMPENSA MODIFICADA ---
 
             // Llegar a meta
-            if (distancia(car.pos, goal) < (usarPersonalizada ? 18 : 16)) {
-              if (!usarPersonalizada && car.fase === 0) {
+            if (distancia(car.pos, goal) < 16) {
+              if (car.fase === 0) {
                 car.score += 5000;
                 car.fase = 1;
                 car.pos = {x: pistaDificil[0].x, y: pistaDificil[0].y};
@@ -432,8 +338,7 @@
 
     function evaluarYPrepararSiguienteGen() {
       for (let car of coches) {
-        let usarPersonalizada = useCustomTrackBox.checked && customTrack.length > 1;
-        let pista = usarPersonalizada ? customTrack : (car.fase === 0 ? pistaFacil : pistaDificil);
+        let pista = (car.fase === 0 ? pistaFacil : pistaDificil);
         let goal = pista[pista.length-1];
         let d = distancia(car.pos, goal);
         car.score += Math.max(0, 700 - d * 1.3);
