@@ -43,23 +43,21 @@
     const TRACK_WIDTH = 56;
 
     // ----- SENSORES -----
-    // Calcula la distancia desde un punto en un ángulo dado hasta salir de la pista
     function sensorDistanciaBorde(x, y, angle, step = 3, maxDist = 60) {
       for (let d = 0; d < maxDist; d += step) {
         let px = x + Math.cos(angle) * d;
         let py = y + Math.sin(angle) * d;
-        if (!carOnTrack(px, py)) return d / maxDist; // Normalizado (0~1)
+        if (!carOnTrack(px, py)) return d / maxDist;
       }
-      return 1; // Máxima distancia
+      return 1;
     }
 
     // Red Neuronal: entradas = dx, dy, anguloRelativo, sensorIzq, sensorDer; salidas = giro, aceleracion
     function crearRedNeuronal() {
-      // 5 entradas (dx, dy, ángulo, sensor izq, sensor der), 8 ocultas, 2 salidas
       return new synaptic.Architect.Perceptron(5, 8, 2);
     }
 
-    function mutarRed(red, tasa = 0.2, prob = 0.2) {
+    function mutarRed(red, tasa = 0.1, prob = 0.1) {
       red.layers.input.list.concat(red.layers.hidden[0].list, red.layers.output.list).forEach(n => {
         Object.values(n.connections.projected).forEach(conn => {
           if (Math.random() < prob) {
@@ -172,7 +170,8 @@
     let coches = [];
     let generacion = 1;
     let mejoresRedes = [];
-    let numMejores = 4;
+    let numMejores = 8;
+    let mejorHist = null; // Elitismo permanente
 
     function iniciarCarrera() {
       const n = parseInt(document.getElementById("numCars").value, 10);
@@ -184,10 +183,17 @@
         let coche = crearCoche(colores[i]);
         if (mejoresRedes.length > 0) {
           let base = clonarRed(mejoresRedes[Math.floor(Math.random()*mejoresRedes.length)]);
-          mutarRed(base, 0.3, 0.2);
+          mutarRed(base, 0.1, 0.1); // Tasa de mutación menor
           coche.red = base;
+        } else {
+          // Variación inicial si es la primera generación
+          mutarRed(coche.red, 0.3, 0.3);
         }
         coches.push(coche);
+      }
+      // Añade siempre la mejor red histórica (elitismo permanente)
+      if (mejorHist) {
+        coches[0].red = clonarRed(mejorHist);
       }
       document.getElementById("genInfo").textContent = `Generación: ${generacion}`;
       correrCarrera();
@@ -201,23 +207,20 @@
         let algunoMoviendo = false;
         for (let car of coches) {
           if (!car.terminado && !car.crashed && paso < numSteps) {
-            // Entradas: dx, dy, ángulo relativo, sensor izq, sensor der
             let dx = goal.x - car.pos.x;
             let dy = goal.y - car.pos.y;
             let angleToGoal = Math.atan2(dy, dx);
             let angleDiff = angleToGoal - car.angle;
             while (angleDiff > Math.PI) angleDiff -= 2*Math.PI;
             while (angleDiff < -Math.PI) angleDiff += 2*Math.PI;
-            // Sensores: mide distancia al borde a la izquierda y derecha del coche
             let sensorIzq = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle - Math.PI/2);
             let sensorDer = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle + Math.PI/2);
-            // Normalización de entradas
             let input = [
-              dx / canvas.width,           // -1~1 aprox
-              dy / canvas.height,          // -1~1 aprox
-              angleDiff / Math.PI,         // -1~1
-              sensorIzq,                   // 0~1
-              sensorDer                    // 0~1
+              dx / canvas.width,
+              dy / canvas.height,
+              angleDiff / Math.PI,
+              sensorIzq,
+              sensorDer
             ];
             let [giro, aceleracion] = car.red.activate(input);
             if (giro < 0.45) car.angle -= 0.07;
@@ -255,13 +258,19 @@
     function evaluarYPrepararSiguienteGen() {
       for (let car of coches) {
         let d = distancia(car.pos, goal);
-        if (!car.crashed) car.score += Math.max(0, 500 - d);
-        if (car.crashed) car.score -= 100;
+        // Score: recompensa más si se acerca a la meta, menos penalización por choque
+        car.score += Math.max(0, 700 - d * 1.3);
+        if (car.crashed) car.score -= 70;
       }
       coches.sort((a, b) => b.score - a.score);
       mejoresRedes = [];
       for (let i = 0; i < numMejores && i < coches.length; i++) {
         mejoresRedes.push(clonarRed(coches[i].red));
+      }
+      // Guarda la mejor red histórica
+      if (!mejorHist || coches[0].score > mejorHist.score) {
+        mejorHist = clonarRed(coches[0].red);
+        mejorHist.score = coches[0].score;
       }
       generacion++;
       if (autoMode) {
