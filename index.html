@@ -2,26 +2,27 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Carrera IA F1</title>
+  <title>Carrera IA F1 - IA con Sensores</title>
   <style>
     body { font-family: sans-serif; text-align: center; margin: 0; }
     #controls { margin: 20px; }
     canvas { background: #e0e0e0; display: block; margin: 0 auto; border: 2px solid #444; }
-    #autoModeBtn.active, #drawModeBtn.active {
+    #autoModeBtn.active {
       background: blue;
       color: white;
     }
   </style>
+  <!-- Synaptic.js para redes neuronales -->
+  <script src="https://cdn.jsdelivr.net/npm/synaptic@1.1.4/dist/synaptic.min.js"></script>
 </head>
 <body>
-  <h2>Carrera IA F1: Entrena tus coches</h2>
+  <h2>Carrera IA F1: IA con Sensores Evolutivos</h2>
   <div id="controls">
     <label for="numCars">Número de IAs: </label>
-    <input id="numCars" type="number" min="1" max="50" value="10" style="width: 60px;">
-    <button onclick="entrenar()">Correr carrera</button>
-    <button onclick="volverHacerCarrera()">Volver a hacer carrera</button>
+    <input id="numCars" type="number" min="1" max="50" value="12" style="width: 60px;">
+    <button onclick="iniciarCarrera()">Iniciar carrera</button>
     <button id="autoModeBtn">Modo Automático</button>
-    <button id="drawModeBtn">Modo Dibujo</button>
+    <span id="genInfo"></span>
   </div>
   <canvas id="game" width="800" height="400"></canvas>
   <script>
@@ -30,7 +31,6 @@
     const start = { x: 80, y: 200 };
     const goal = { x: 700, y: 320 };
     const numSteps = 90;
-
     const trackPath = [
       {x: 80, y: 200},
       {x: 200, y: 160},
@@ -42,56 +42,53 @@
     ];
     const TRACK_WIDTH = 56;
 
-    // ----------- NUEVO: Modo Dibujo -----------
-    let drawMode = false;
-    let drawing = false;
-    let drawPoints = [];
-    const drawModeBtn = document.getElementById('drawModeBtn');
-
-    drawModeBtn.addEventListener('click', function() {
-      drawMode = !drawMode;
-      drawModeBtn.classList.toggle("active", drawMode);
-      if(drawMode) {
-        drawPoints = [];
-        canvas.addEventListener('mousedown', startDraw);
-        canvas.addEventListener('mousemove', drawMove);
-        canvas.addEventListener('mouseup', endDraw);
-      } else {
-        canvas.removeEventListener('mousedown', startDraw);
-        canvas.removeEventListener('mousemove', drawMove);
-        canvas.removeEventListener('mouseup', endDraw);
-        drawTrack();
+    // ----- SENSORES -----
+    // Calcula la distancia desde un punto en un ángulo dado hasta salir de la pista
+    function sensorDistanciaBorde(x, y, angle, step = 3, maxDist = 60) {
+      for (let d = 0; d < maxDist; d += step) {
+        let px = x + Math.cos(angle) * d;
+        let py = y + Math.sin(angle) * d;
+        if (!carOnTrack(px, py)) return d / maxDist; // Normalizado (0~1)
       }
-    });
+      return 1; // Máxima distancia
+    }
 
-    function startDraw(e) {
-      drawing = true;
-      drawPoints = [];
-      const rect = canvas.getBoundingClientRect();
-      drawPoints.push({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    // Red Neuronal: entradas = dx, dy, anguloRelativo, sensorIzq, sensorDer; salidas = giro, aceleracion
+    function crearRedNeuronal() {
+      // 5 entradas (dx, dy, ángulo, sensor izq, sensor der), 8 ocultas, 2 salidas
+      return new synaptic.Architect.Perceptron(5, 8, 2);
     }
-    function drawMove(e) {
-      if (!drawing) return;
-      const rect = canvas.getBoundingClientRect();
-      drawPoints.push({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-      drawTrack();
-      // Dibuja la línea sobre la pista
-      ctx.beginPath();
-      ctx.moveTo(drawPoints[0].x, drawPoints[0].y);
-      for (let p of drawPoints) ctx.lineTo(p.x, p.y);
-      ctx.strokeStyle = "orange";
-      ctx.lineWidth = 3;
-      ctx.stroke();
+
+    function mutarRed(red, tasa = 0.2, prob = 0.2) {
+      red.layers.input.list.concat(red.layers.hidden[0].list, red.layers.output.list).forEach(n => {
+        Object.values(n.connections.projected).forEach(conn => {
+          if (Math.random() < prob) {
+            conn.weight += (Math.random() - 0.5) * tasa;
+          }
+        });
+      });
     }
-    function endDraw(e) {
-      drawing = false;
+
+    function clonarRed(red) {
+      return synaptic.Network.fromJSON(red.toJSON());
     }
-    // ----------- FIN MODO DIBUJO -----------
+
+    function crearCoche(color) {
+      return {
+        pos: { x: start.x, y: start.y },
+        angle: 0,
+        trail: [{ x: start.x, y: start.y }],
+        color,
+        terminado: false,
+        crashed: false,
+        score: 0,
+        red: crearRedNeuronal()
+      };
+    }
 
     function drawTrack() {
       ctx.save();
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.strokeStyle = "#222";
       ctx.lineWidth = TRACK_WIDTH;
       ctx.beginPath();
@@ -100,7 +97,6 @@
         ctx.lineTo(trackPath[i].x, trackPath[i].y);
       }
       ctx.stroke();
-
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 4;
       ctx.beginPath();
@@ -115,23 +111,11 @@
         ctx.lineTo(trackPath[i+1].x-nx*TRACK_WIDTH/2, trackPath[i+1].y-ny*TRACK_WIDTH/2);
       }
       ctx.stroke();
-
       ctx.fillStyle = "green";
       ctx.fillRect(goal.x - 12, goal.y - 20, 24, 40);
       ctx.fillStyle = "#fff";
       ctx.fillRect(goal.x - 12, goal.y - 20, 24, 10);
       ctx.fillRect(goal.x - 12, goal.y + 10, 24, 10);
-
-      // ----------- Dibuja línea del usuario si existe -----------
-      if (drawPoints.length > 1) {
-        ctx.beginPath();
-        ctx.moveTo(drawPoints[0].x, drawPoints[0].y);
-        for (let p of drawPoints) ctx.lineTo(p.x, p.y);
-        ctx.strokeStyle = "orange";
-        ctx.lineWidth = 3;
-        ctx.stroke();
-      }
-      // -----------------------------------------------------------
       ctx.restore();
     }
 
@@ -184,342 +168,120 @@
       return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
     }
 
-    function randomDirection() {
-      const base = 12;
-      return [
-        { dx: base, dy: 0, da: 0 },
-        { dx: base, dy: -4, da: -0.07 },
-        { dx: base, dy: 4, da: 0.07 },
-        { dx: base, dy: -8, da: -0.12 },
-        { dx: base, dy: 8, da: 0.12 }
-      ][Math.floor(Math.random() * 5)];
-    }
+    // --- Algoritmo evolutivo con sensores extras ---
+    let coches = [];
+    let generacion = 1;
+    let mejoresRedes = [];
+    let numMejores = 4;
 
-    // Mutación más inteligente (probabilidad menor al principio y final)
-    function mutarPath(path) {
-      if (!path) return [];
-      const total = path.length;
-      return path.map((dir, idx) => {
-        // Menos probabilidad de mutación en los primeros y últimos 20%
-        let prob = 0.1;
-        if (idx < total * 0.2 || idx > total * 0.8) prob = 0.03;
-        if (Math.random() < prob) {
-          return randomDirection();
-        }
-        return { ...dir };
-      });
-    }
-
-    // TODOS los coches heredan el mejor path mutado
-    function generarCoches(n, heredanDe = null, bestPath = null) {
-      let coches = [];
+    function iniciarCarrera() {
+      const n = parseInt(document.getElementById("numCars").value, 10);
+      let colores = [];
+      for (let i = 0; i < n; i++)
+        colores.push(`hsl(${(i * 360) / n}, 80%, 50%)`);
+      coches = [];
       for (let i = 0; i < n; i++) {
-        let coche = {
-          pos: { x: start.x, y: start.y },
-          angle: 0,
-          path: [],
-          trail: [{ x: start.x, y: start.y }],
-          color: `hsl(${(i * 360) / n}, 80%, 50%)`,
-          terminado: false,
-          score: 0,
-          crashed: false,
-          centralidad: 0,
-          bonusLinea: 0
-        };
-        if (bestPath) {
-          coche.path = mutarPath(bestPath);
-        } else {
-          coche.path = [];
+        let coche = crearCoche(colores[i]);
+        if (mejoresRedes.length > 0) {
+          let base = clonarRed(mejoresRedes[Math.floor(Math.random()*mejoresRedes.length)]);
+          mutarRed(base, 0.3, 0.2);
+          coche.red = base;
         }
         coches.push(coche);
       }
-      return coches;
+      document.getElementById("genInfo").textContent = `Generación: ${generacion}`;
+      correrCarrera();
     }
 
-    function guardarMenteGlobal(path, distance) {
-      localStorage.setItem("menteGlobalPath", JSON.stringify(path));
-      localStorage.setItem("menteGlobalDist", distance);
-    }
-    function cargarMenteGlobal() {
-      return {
-        path: JSON.parse(localStorage.getItem("menteGlobalPath") || "null"),
-        distance: Number(localStorage.getItem("menteGlobalDist") || "Infinity")
-      };
-    }
-    function borrarMenteGlobal() {
-      localStorage.removeItem("menteGlobalPath");
-      localStorage.removeItem("menteGlobalDist");
-    }
-
-    let lastBestCars = null;
-
-    // Correr carrera - SIEMPRE empieza desde cero pero usa el mejor récord global para comparación
-    function entrenar() {
-      const n = parseInt(document.getElementById("numCars").value, 10);
-      const generaciones = 1; // Solo una generación
-
-      let mente = cargarMenteGlobal();
-      let bestPath = mente.path;
-      let bestDistance = mente.distance;
-      lastBestCars = null;
-
-      function ejecutarGeneracion(gen) {
-        let coches = generarCoches(n, null, bestPath);
-        let paso = 0;
-        let carreraTerminada = false;
-
-        function moverCoches() {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          drawTrack();
-
-          let algunoMoviendo = false;
-
-          for (let car of coches) {
-            if (!car.terminado && !car.crashed && paso < numSteps) {
-              let dir;
-              if (car.path[paso]) {
-                dir = car.path[paso];
-              } else if (bestPath && Math.random() < 0.7 && bestPath[paso]) {
-                dir = bestPath[paso];
-              } else {
-                dir = randomDirection();
-              }
-              car.angle += dir.da;
-              car.pos.x += dir.dx * Math.cos(car.angle);
-              car.pos.y += dir.dx * Math.sin(car.angle) + dir.dy;
-              car.path.push({ dx: dir.dx, dy: dir.dy, da: dir.da });
-              car.trail.push({ x: car.pos.x, y: car.pos.y });
-
-              // -------------- BONUS CENTRALIDAD --------------
-              let minDistToCenter = Infinity;
-              for (let i = 0; i < trackPath.length - 1; i++) {
-                let ax = trackPath[i].x, ay = trackPath[i].y;
-                let bx = trackPath[i+1].x, by = trackPath[i+1].y;
-                let dx = bx-ax, dy = by-ay;
-                let t = ((car.pos.x-ax)*dx + (car.pos.y-ay)*dy) / (dx*dx+dy*dy);
-                t = Math.max(0, Math.min(1, t));
-                let px = ax + t*dx;
-                let py = ay + t*dy;
-                let dist = Math.sqrt((car.pos.x-px)**2 + (car.pos.y-py)**2);
-                if (dist < minDistToCenter) minDistToCenter = dist;
-              }
-              car.centralidad = (car.centralidad || 0) + (TRACK_WIDTH/2 - minDistToCenter);
-
-              // -------------- BONUS SIGUE LÍNEA DIBUJADA --------------
-              let bonusLinea = 0;
-              if (drawPoints.length > 1) {
-                let minDistLinea = Infinity;
-                for(let p of drawPoints){
-                  let dist = Math.sqrt((car.pos.x - p.x)**2 + (car.pos.y - p.y)**2);
-                  if(dist < minDistLinea) minDistLinea = dist;
-                }
-                if(minDistLinea < 12) bonusLinea = 5; // Puedes ajustar este valor
-              }
-              car.bonusLinea = (car.bonusLinea || 0) + bonusLinea;
-
-              if (!carOnTrack(car.pos.x, car.pos.y)) {
-                car.crashed = true;
-                car.terminado = true;
-                car.score -= 100;
-              }
-
-              if (distancia(car.pos, goal) < 16) car.terminado = true;
-              algunoMoviendo = true;
+    function correrCarrera() {
+      let paso = 0;
+      let carreraActiva = true;
+      function mover() {
+        drawTrack();
+        let algunoMoviendo = false;
+        for (let car of coches) {
+          if (!car.terminado && !car.crashed && paso < numSteps) {
+            // Entradas: dx, dy, ángulo relativo, sensor izq, sensor der
+            let dx = goal.x - car.pos.x;
+            let dy = goal.y - car.pos.y;
+            let angleToGoal = Math.atan2(dy, dx);
+            let angleDiff = angleToGoal - car.angle;
+            while (angleDiff > Math.PI) angleDiff -= 2*Math.PI;
+            while (angleDiff < -Math.PI) angleDiff += 2*Math.PI;
+            // Sensores: mide distancia al borde a la izquierda y derecha del coche
+            let sensorIzq = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle - Math.PI/2);
+            let sensorDer = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle + Math.PI/2);
+            // Normalización de entradas
+            let input = [
+              dx / canvas.width,           // -1~1 aprox
+              dy / canvas.height,          // -1~1 aprox
+              angleDiff / Math.PI,         // -1~1
+              sensorIzq,                   // 0~1
+              sensorDer                    // 0~1
+            ];
+            let [giro, aceleracion] = car.red.activate(input);
+            if (giro < 0.45) car.angle -= 0.07;
+            else if (giro > 0.55) car.angle += 0.07;
+            if (aceleracion > 0.5) {
+              car.pos.x += 10 * Math.cos(car.angle);
+              car.pos.y += 10 * Math.sin(car.angle);
             }
-            drawTrail(car.trail, car.color);
-            drawCar(car.pos.x, car.pos.y, car.crashed ? "#f00" : car.color, car.angle);
+            car.trail.push({ x: car.pos.x, y: car.pos.y });
+            if (!carOnTrack(car.pos.x, car.pos.y)) {
+              car.crashed = true;
+              car.terminado = true;
+              car.score -= 100;
+            }
+            if (distancia(car.pos, goal) < 16) {
+              car.terminado = true;
+              car.score += 1000 - car.trail.length;
+            }
+            algunoMoviendo = true;
           }
-
-          paso++;
-          if (algunoMoviendo && paso <= numSteps) {
-            requestAnimationFrame(moverCoches);
-          } else if (!carreraTerminada) {
-            carreraTerminada = true;
-
-            for (let car of coches) {
-              let d = distancia(car.pos, goal);
-              if (d < 16) {
-                car.score = 1000 - car.trail.length;
-              } else {
-                car.score = Math.max(0, 500 - d);
-              }
-              if (car.crashed) car.score -= 100;
-
-              // -------------- SUMA BONUS AL SCORE FINAL --------------
-              car.score += (car.centralidad || 0) * 0.05; // Ajusta el multiplicador si quieres
-              car.score += (car.bonusLinea || 0);
-            }
-            coches.sort((a, b) => b.score - a.score);
-
-            for (let i = coches.length - 3; i < coches.length; i++) {
-              if (i >= 0) coches[i].score -= 200;
-            }
-
-            // Si el mejor coche de esta carrera supera el récord global, lo actualizamos
-            let mejorCoche = coches[0];
-            let mejorDistanciaActual = distancia(mejorCoche.pos, goal);
-            if (mejorCoche.score > 0 && (bestPath === null || mejorDistanciaActual < bestDistance)) {
-              bestPath = mejorCoche.path;
-              bestDistance = mejorDistanciaActual;
-              guardarMenteGlobal(bestPath, bestDistance);
-            }
-            // Guardamos los mejores para referencia de la siguiente carrera
-            lastBestCars = coches.slice(0, Math.max(3, Math.floor(coches.length / 4)));
-          }
+          drawTrail(car.trail, car.color);
+          drawCar(car.pos.x, car.pos.y, car.crashed ? "#f00" : car.color, car.angle);
         }
-        moverCoches();
-      }
-      ejecutarGeneracion(0);
-    }
-
-    // Volver a hacer carrera - SIEMPRE usa el récord global para los nuevos coches y solo lo actualiza si es superado
-    function volverHacerCarrera(onFinish) {
-      const n = parseInt(document.getElementById("numCars").value, 10);
-
-      if (!lastBestCars) {
-        alert("Primero corre una carrera para que haya mejores coches de referencia.");
-        if (typeof onFinish === 'function') onFinish();
-        return;
-      }
-
-      let mente = cargarMenteGlobal();
-      let bestPath = mente.path;
-      let bestDistance = mente.distance;
-
-      function ejecutarGeneracion(gen) {
-        let coches = generarCoches(n, lastBestCars, bestPath);
-        let paso = 0;
-        let carreraTerminada = false;
-
-        function moverCoches() {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          drawTrack();
-
-          let algunoMoviendo = false;
-
-          for (let car of coches) {
-            if (!car.terminado && !car.crashed && paso < numSteps) {
-              let dir;
-              if (car.path[paso]) {
-                dir = car.path[paso];
-              } else if (bestPath && Math.random() < 0.5 && bestPath[paso]) {
-                dir = bestPath[paso];
-              } else {
-                dir = randomDirection();
-              }
-              car.angle += dir.da;
-              car.pos.x += dir.dx * Math.cos(car.angle);
-              car.pos.y += dir.dx * Math.sin(car.angle) + dir.dy;
-              car.trail.push({ x: car.pos.x, y: car.pos.y });
-
-              // -------------- BONUS CENTRALIDAD --------------
-              let minDistToCenter = Infinity;
-              for (let i = 0; i < trackPath.length - 1; i++) {
-                let ax = trackPath[i].x, ay = trackPath[i].y;
-                let bx = trackPath[i+1].x, by = trackPath[i+1].y;
-                let dx = bx-ax, dy = by-ay;
-                let t = ((car.pos.x-ax)*dx + (car.pos.y-ay)*dy) / (dx*dx+dy*dy);
-                t = Math.max(0, Math.min(1, t));
-                let px = ax + t*dx;
-                let py = ay + t*dy;
-                let dist = Math.sqrt((car.pos.x-px)**2 + (car.pos.y-py)**2);
-                if (dist < minDistToCenter) minDistToCenter = dist;
-              }
-              car.centralidad = (car.centralidad || 0) + (TRACK_WIDTH/2 - minDistToCenter);
-
-              // -------------- BONUS SIGUE LÍNEA DIBUJADA --------------
-              let bonusLinea = 0;
-              if (drawPoints.length > 1) {
-                let minDistLinea = Infinity;
-                for(let p of drawPoints){
-                  let dist = Math.sqrt((car.pos.x - p.x)**2 + (car.pos.y - p.y)**2);
-                  if(dist < minDistLinea) minDistLinea = dist;
-                }
-                if(minDistLinea < 12) bonusLinea = 5;
-              }
-              car.bonusLinea = (car.bonusLinea || 0) + bonusLinea;
-
-              if (!carOnTrack(car.pos.x, car.pos.y)) {
-                car.crashed = true;
-                car.terminado = true;
-                car.score -= 100;
-              }
-
-              if (distancia(car.pos, goal) < 16) car.terminado = true;
-              algunoMoviendo = true;
-            }
-            drawTrail(car.trail, car.color);
-            drawCar(car.pos.x, car.pos.y, car.crashed ? "#f00" : car.color, car.angle);
-          }
-
-          paso++;
-          if (algunoMoviendo && paso <= numSteps) {
-            requestAnimationFrame(moverCoches);
-          } else if (!carreraTerminada) {
-            carreraTerminada = true;
-
-            for (let car of coches) {
-              let d = distancia(car.pos, goal);
-              if (d < 16) {
-                car.score = 1000 - car.trail.length;
-              } else {
-                car.score = Math.max(0, 500 - d);
-              }
-              if (car.crashed) car.score -= 100;
-
-              // -------------- SUMA BONUS AL SCORE FINAL --------------
-              car.score += (car.centralidad || 0) * 0.05;
-              car.score += (car.bonusLinea || 0);
-            }
-            coches.sort((a, b) => b.score - a.score);
-
-            for (let i = coches.length - 3; i < coches.length; i++) {
-              if (i >= 0) coches[i].score -= 200;
-            }
-
-            // Si el mejor coche de esta carrera supera el récord global, lo actualizamos
-            let mejorCoche = coches[0];
-            let mejorDistanciaActual = distancia(mejorCoche.pos, goal);
-            if (mejorCoche.score > 0 && (bestPath === null || mejorDistanciaActual < bestDistance)) {
-              bestPath = mejorCoche.path;
-              bestDistance = mejorDistanciaActual;
-              guardarMenteGlobal(bestPath, bestDistance);
-            }
-
-            // Guardamos los mejores para referencia de la siguiente carrera
-            lastBestCars = coches.slice(0, Math.max(3, Math.floor(coches.length / 4)));
-
-            if (typeof onFinish === 'function') onFinish();
-          }
+        paso++;
+        if (algunoMoviendo && paso <= numSteps) {
+          requestAnimationFrame(mover);
+        } else if (carreraActiva) {
+          carreraActiva = false;
+          evaluarYPrepararSiguienteGen();
         }
-        moverCoches();
       }
-      ejecutarGeneracion(0);
+      mover();
     }
 
-    // Modo automático
+    function evaluarYPrepararSiguienteGen() {
+      for (let car of coches) {
+        let d = distancia(car.pos, goal);
+        if (!car.crashed) car.score += Math.max(0, 500 - d);
+        if (car.crashed) car.score -= 100;
+      }
+      coches.sort((a, b) => b.score - a.score);
+      mejoresRedes = [];
+      for (let i = 0; i < numMejores && i < coches.length; i++) {
+        mejoresRedes.push(clonarRed(coches[i].red));
+      }
+      generacion++;
+      if (autoMode) {
+        setTimeout(() => iniciarCarrera(), 300);
+      }
+    }
+
+    // --- Modo automático ---
     let autoMode = false;
-    let autoModeTimeout = null;
     const autoModeBtn = document.getElementById('autoModeBtn');
     autoModeBtn.addEventListener('click', function() {
       autoMode = !autoMode;
       if (autoMode) {
         autoModeBtn.classList.add("active");
-        startAutoMode();
+        iniciarCarrera();
       } else {
         autoModeBtn.classList.remove("active");
-        if (autoModeTimeout) clearTimeout(autoModeTimeout);
       }
     });
 
-    function startAutoMode() {
-      if (!autoMode) return;
-      volverHacerCarrera(() => {
-        autoModeTimeout = setTimeout(startAutoMode, 200); // puedes ajustar el tiempo aquí (ms)
-      });
-    }
-
-    // Solo dibuja la pista al cargar. ¡No inicia ninguna carrera automáticamente!
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawTrack();
   </script>
