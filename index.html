@@ -16,7 +16,6 @@
       color: white;
     }
   </style>
-  <!-- Synaptic.js para redes neuronales -->
   <script src="https://cdn.jsdelivr.net/npm/synaptic@1.1.4/dist/synaptic.min.js"></script>
 </head>
 <body>
@@ -51,7 +50,6 @@
       if (paintMode) {
         paintModeBtn.classList.add("active");
         customTrack = [];
-        // Limpia y vuelve a dibujar pistas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawTracks();
       } else {
@@ -90,7 +88,6 @@
       if (!paintMode) return;
       painting = false;
       ctx.closePath();
-      // Dibuja la pista final en verde más grueso
       if (customTrack.length > 1) {
         ctx.beginPath();
         ctx.moveTo(customTrack[0].x, customTrack[0].y);
@@ -102,7 +99,7 @@
       }
     });
 
-    // --- Definición de pistas (la difícil ahora es más suave y ancha) ---
+    // --- Definición de pistas ---
     const pistaFacil = [
       {x: 80, y: 120},
       {x: 520, y: 120}
@@ -127,7 +124,6 @@
     const TRACK_WIDTH = 130;
     const numSteps = 150;
 
-    // Red neuronal y coches
     function crearRedNeuronal() {
       return new synaptic.Architect.Perceptron(6, 8, 2);
     }
@@ -144,7 +140,6 @@
       return synaptic.Network.fromJSON(red.toJSON());
     }
     function crearCoche(color) {
-      // Si hay pista personalizada y el checkbox está activado, empieza ahí
       let start = (useCustomTrackBox.checked && customTrack.length > 0) ? customTrack[0] : pistaFacil[0];
       return {
         pos: { x: start.x, y: start.y },
@@ -161,7 +156,6 @@
     }
 
     function drawTracks() {
-      // Pista fácil
       ctx.save();
       ctx.strokeStyle = "#222";
       ctx.lineWidth = TRACK_WIDTH;
@@ -185,11 +179,9 @@
         ctx.lineTo(pistaFacil[i+1].x-nx*TRACK_WIDTH/2, pistaFacil[i+1].y-ny*TRACK_WIDTH/2);
       }
       ctx.stroke();
-      // Meta fácil
       ctx.fillStyle = "green";
       ctx.fillRect(pistaFacil[pistaFacil.length-1].x - 12, pistaFacil[pistaFacil.length-1].y - 20, 24, 40);
 
-      // Pista difícil (a la derecha)
       ctx.strokeStyle = "#a22";
       ctx.lineWidth = TRACK_WIDTH;
       ctx.beginPath();
@@ -212,11 +204,9 @@
         ctx.lineTo(pistaDificil[i+1].x-nx*TRACK_WIDTH/2, pistaDificil[i+1].y-ny*TRACK_WIDTH/2);
       }
       ctx.stroke();
-      // Meta difícil
       ctx.fillStyle = "purple";
       ctx.fillRect(pistaDificil[pistaDificil.length-1].x - 12, pistaDificil[pistaDificil.length-1].y - 20, 24, 40);
 
-      // Dibuja pista personalizada si existe
       if (customTrack.length > 1) {
         ctx.beginPath();
         ctx.moveTo(customTrack[0].x, customTrack[0].y);
@@ -233,8 +223,8 @@
       ctx.restore();
     }
 
-    // Utilidad para saber si un punto está sobre una pista
-    function carOnTrack(x, y, pista, ancho=TRACK_WIDTH) {
+    // Calcula la distancia del coche a la pista (línea central)
+    function distanciaAPista(x, y, pista) {
       let minDist = Infinity;
       for(let i=0; i<pista.length-1; i++) {
         let ax = pista[i].x, ay = pista[i].y;
@@ -247,7 +237,12 @@
         let dist = Math.sqrt((x-px)**2 + (y-py)**2);
         if(dist<minDist) minDist = dist;
       }
-      return minDist <= ancho/2 - 5;
+      return minDist;
+    }
+
+    // Utilidad para saber si un punto está sobre una pista
+    function carOnTrack(x, y, pista, ancho=TRACK_WIDTH) {
+      return distanciaAPista(x, y, pista) <= ancho/2 - 5;
     }
 
     function drawCar(x, y, color, angle = 0) {
@@ -334,7 +329,6 @@
         drawTracks();
         let algunoMoviendo = false;
         for (let car of coches) {
-          // Si el checkbox está marcado y hay pista personalizada, usarla
           let usarPersonalizada = useCustomTrackBox.checked && customTrack.length > 1;
           let pista = usarPersonalizada ? customTrack : (car.fase === 0 ? pistaFacil : pistaDificil);
           let ancho = usarPersonalizada ? 28 : TRACK_WIDTH;
@@ -376,17 +370,31 @@
 
             car.trail.push({ x: car.pos.x, y: car.pos.y });
 
-            if (!carOnTrack(car.pos.x, car.pos.y, pista, ancho)) {
+            // --- NUEVA RECOMPENSA: Aproximarse y seguir la línea pintada es bueno ---
+            let distLinea = distanciaAPista(car.pos.x, car.pos.y, pista);
+            if (distLinea < 10) {
+              car.score += 10; // máxima recompensa
+            } else if (distLinea < 20) {
+              car.score += 5;
+            } else if (distLinea < 35) {
+              car.score += 1;
+            } else {
+              car.score -= 2; // penaliza si está lejos
+            }
+            // Si se aleja demasiado: penalización dura y termina
+            if (distLinea > ancho/2 - 5) {
               car.crashed = true;
               car.terminado = true;
-              car.score -= 300;
+              car.score -= 1000;
+              // Penaliza extra por lo lejos que estaba de la meta
+              let distToGoal = distancia(car.pos, goal);
+              car.score -= distToGoal * 2;
             }
+            // --- FIN RECOMPENSA ---
 
-            // Meta: si está cerca del final de la pista personalizada o las habituales
             if (distancia(car.pos, goal) < (usarPersonalizada ? 18 : 16)) {
               if (!usarPersonalizada && car.fase === 0) {
                 car.score += 5000;
-                // Teleporta a pista difícil
                 car.fase = 1;
                 car.pos = {x: pistaDificil[0].x, y: pistaDificil[0].y};
                 car.trail = [{x: car.pos.x, y: car.pos.y}];
@@ -451,10 +459,8 @@
       }
     });
 
-    // Dibuja pistas iniciales
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawTracks();
-
   </script>
 </body>
 </html>
