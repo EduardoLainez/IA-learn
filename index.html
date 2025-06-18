@@ -2,276 +2,372 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Carrera IA F1 - 3D</title>
+  <title>Carrera IA F1 - IA con Sensores</title>
   <style>
-    body { margin: 0; background: #222; color: #fff; }
-    #ui {
-      position: absolute; top: 18px; left: 18px; z-index: 10;
-      background: rgba(20,20,20,0.7); padding: 16px; border-radius: 8px;
+    body { font-family: sans-serif; text-align: center; margin: 0; }
+    #controls { margin: 20px; }
+    canvas { background: #e0e0e0; display: block; margin: 0 auto; border: 2px solid #444; }
+    #autoModeBtn.active {
+      background: blue;
+      color: white;
     }
-    button { font-size: 1em; }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.151.3/build/three.min.js"></script>
+  <!-- Synaptic.js para redes neuronales -->
   <script src="https://cdn.jsdelivr.net/npm/synaptic@1.1.4/dist/synaptic.min.js"></script>
 </head>
 <body>
-  <div id="ui">
-    <button onclick="startRace()">Iniciar carrera</button>
+  <h2>Carrera IA F1: IA con Sensores Evolutivos</h2>
+  <div id="controls">
+    <label for="numCars">Número de IAs: </label>
+    <input id="numCars" type="number" min="1" max="100" value="20" style="width: 60px;">
+    <button onclick="iniciarCarrera()">Iniciar carrera</button>
+    <button id="autoModeBtn">Modo Automático</button>
     <span id="genInfo"></span>
   </div>
+  <canvas id="game" width="1200" height="400"></canvas>
   <script>
-    // --- Parámetros ---
-    const NUM_CARS = 20;
-    const NUM_GEN = 4; // coches que pasan a la siguiente generación
-    const MUT_RATE = 0.25;
-    const TRACK_LEN = 400;
-    const CAR_SIZE = { x: 4, y: 2, z: 8 };
-    const MAX_SPEED = 3;
-    const STEER_ANGLE = 0.04;
-    const NUM_SENSORS = 3;
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
 
-    // --- Three.js setup ---
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x111111);
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({antialias:true});
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
-
-    // Luz
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
-    scene.add(ambientLight);
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    dirLight.position.set(100,200,100);
-    scene.add(dirLight);
-
-    // Pista (recta y curva simple)
-    const trackShape = [
-      new THREE.Vector3(0, 0, 160),
-      new THREE.Vector3(0, 0, 80),
-      new THREE.Vector3(40, 0, 0),
-      new THREE.Vector3(100, 0, -60),
-      new THREE.Vector3(180, 0, -80),
-      new THREE.Vector3(250, 0, -40),
-      new THREE.Vector3(280, 0, 40),
-      new THREE.Vector3(260, 0, 120),
-      new THREE.Vector3(180, 0, 180),
-      new THREE.Vector3(100, 0, 200),
-      new THREE.Vector3(0, 0, 160)
+    // --- Definición de pistas (la difícil ahora es más suave y ancha) ---
+    // Pista fácil (izquierda)
+    const pistaFacil = [
+      {x: 80, y: 120},
+      {x: 520, y: 120}
     ];
+    // Pista difícil (derecha, curva circular)
+    const pistaDificil = [
+      {x: 680, y: 120},
+      {x: 900, y: 120},
+      {x: 1000, y: 130},
+      {x: 1080, y: 160},
+      {x: 1120, y: 200},
+      {x: 1100, y: 250},
+      {x: 1050, y: 280},
+      {x: 950, y: 300},
+      {x: 850, y: 280},
+      {x: 780, y: 230},
+      {x: 720, y: 180}
+    ];
+    const pistas = [pistaFacil, pistaDificil];
 
-    // Dibujar pista (tubo)
-    const curve = new THREE.CatmullRomCurve3(trackShape, true);
-    const tubeGeometry = new THREE.TubeGeometry(curve, 150, 12, 16, true);
-    const tubeMaterial = new THREE.MeshPhongMaterial({ color: 0x2222aa, opacity:0.7, transparent:true });
-    const trackMesh = new THREE.Mesh(tubeGeometry, tubeMaterial);
-    scene.add(trackMesh);
+    // --- Ajustes de aceleración y frenado ---
+    const ACCELERATION = 1.0; // Más fuerte
+    const BRAKE = 1.2;        // Más fuerte
 
-    // Meta
-    const goalGeo = new THREE.BoxGeometry(24,2,24);
-    const goalMat = new THREE.MeshPhongMaterial({color:0x00ff00});
-    const goalMesh = new THREE.Mesh(goalGeo, goalMat);
-    goalMesh.position.copy(trackShape[0]);
-    goalMesh.position.y += 2;
-    scene.add(goalMesh);
+    const TRACK_WIDTH = 130;  // Más ancho para ambas pistas
+    const numSteps = 150;
 
-    // --- IA y coches ---
-    function crearRed() {
-      // Entradas: sensor izq, sensor centro, sensor der, speed, angulo a meta, distancia a meta
-      return new synaptic.Architect.Perceptron(NUM_SENSORS+3, 8, 2);
+    // --- Red neuronal y coches ---
+    function crearRedNeuronal() {
+      return new synaptic.Architect.Perceptron(6, 8, 2);
     }
-    function mutarRed(red, tasa = MUT_RATE, prob = MUT_RATE) {
+    function mutarRed(red, tasa = 0.2, prob = 0.2) {
       red.layers.input.list.concat(red.layers.hidden[0].list, red.layers.output.list).forEach(n => {
         Object.values(n.connections.projected).forEach(conn => {
-          if (Math.random() < prob) conn.weight += (Math.random() - 0.5) * tasa;
+          if (Math.random() < prob) {
+            conn.weight += (Math.random() - 0.5) * tasa;
+          }
         });
       });
     }
     function clonarRed(red) {
       return synaptic.Network.fromJSON(red.toJSON());
     }
-
-    function createCar(colorHex = 0xff0000) {
-      const geo = new THREE.BoxGeometry(CAR_SIZE.x, CAR_SIZE.y, CAR_SIZE.z);
-      const mat = new THREE.MeshPhongMaterial({color: colorHex});
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      scene.add(mesh);
-      return mesh;
+    function crearCoche(color) {
+      return {
+        pos: { x: pistaFacil[0].x, y: pistaFacil[0].y },
+        angle: 0,
+        trail: [{ x: pistaFacil[0].x, y: pistaFacil[0].y }],
+        color,
+        terminado: false,
+        crashed: false,
+        score: 0,
+        red: crearRedNeuronal(),
+        fase: 0,
+        velocidad: 0
+      };
     }
 
-    // --- Estado global ---
-    let cars = [];
-    let brains = [];
-    let velocities = [];
-    let angles = [];
-    let scores = [];
-    let finished = [];
-    let gen = 1;
-    let bestBrains = [];
-
-    // --- Sensores (raycast) ---
-    function getSensors(pos, angle) {
-      // Tres sensores: izq, centro, der
-      const sensorAngles = [-Math.PI/4, 0, Math.PI/4];
-      let res = [];
-      for (let i=0; i<sensorAngles.length; ++i) {
-        const dir = new THREE.Vector3(
-          Math.sin(angle + sensorAngles[i]),
-          0,
-          Math.cos(angle + sensorAngles[i])
-        );
-        const ray = new THREE.Raycaster(pos.clone(), dir, 0, 30);
-        const intersects = ray.intersectObject(trackMesh, true);
-        if (intersects.length === 0) res.push(1); // No colisión => lejos
-        else res.push(intersects[0].distance / 30); // Normalizado
+    function drawTracks() {
+      // Pista fácil
+      ctx.save();
+      ctx.strokeStyle = "#222";
+      ctx.lineWidth = TRACK_WIDTH;
+      ctx.beginPath();
+      ctx.moveTo(pistaFacil[0].x, pistaFacil[0].y);
+      for(let i=1; i<pistaFacil.length; i++){
+        ctx.lineTo(pistaFacil[i].x, pistaFacil[i].y);
       }
-      return res;
+      ctx.stroke();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      for(let i=0; i<pistaFacil.length-1; i++){
+        let dx = pistaFacil[i+1].x-pistaFacil[i].x;
+        let dy = pistaFacil[i+1].y-pistaFacil[i].y;
+        let len = Math.sqrt(dx*dx+dy*dy);
+        let nx = -dy/len, ny = dx/len;
+        ctx.moveTo(pistaFacil[i].x+nx*TRACK_WIDTH/2, pistaFacil[i].y+ny*TRACK_WIDTH/2);
+        ctx.lineTo(pistaFacil[i+1].x+nx*TRACK_WIDTH/2, pistaFacil[i+1].y+ny*TRACK_WIDTH/2);
+        ctx.moveTo(pistaFacil[i].x-nx*TRACK_WIDTH/2, pistaFacil[i].y-ny*TRACK_WIDTH/2);
+        ctx.lineTo(pistaFacil[i+1].x-nx*TRACK_WIDTH/2, pistaFacil[i+1].y-ny*TRACK_WIDTH/2);
+      }
+      ctx.stroke();
+      // Meta fácil
+      ctx.fillStyle = "green";
+      ctx.fillRect(pistaFacil[pistaFacil.length-1].x - 12, pistaFacil[pistaFacil.length-1].y - 20, 24, 40);
+
+      // Pista difícil (a la derecha)
+      ctx.strokeStyle = "#a22";
+      ctx.lineWidth = TRACK_WIDTH;
+      ctx.beginPath();
+      ctx.moveTo(pistaDificil[0].x, pistaDificil[0].y);
+      for(let i=1; i<pistaDificil.length; i++){
+        ctx.lineTo(pistaDificil[i].x, pistaDificil[i].y);
+      }
+      ctx.stroke();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      for(let i=0; i<pistaDificil.length-1; i++){
+        let dx = pistaDificil[i+1].x-pistaDificil[i].x;
+        let dy = pistaDificil[i+1].y-pistaDificil[i].y;
+        let len = Math.sqrt(dx*dx+dy*dy);
+        let nx = -dy/len, ny = dx/len;
+        ctx.moveTo(pistaDificil[i].x+nx*TRACK_WIDTH/2, pistaDificil[i].y+ny*TRACK_WIDTH/2);
+        ctx.lineTo(pistaDificil[i+1].x+nx*TRACK_WIDTH/2, pistaDificil[i+1].y+ny*TRACK_WIDTH/2);
+        ctx.moveTo(pistaDificil[i].x-nx*TRACK_WIDTH/2, pistaDificil[i].y-ny*TRACK_WIDTH/2);
+        ctx.lineTo(pistaDificil[i+1].x-nx*TRACK_WIDTH/2, pistaDificil[i+1].y-ny*TRACK_WIDTH/2);
+      }
+      ctx.stroke();
+      // Meta difícil
+      ctx.fillStyle = "purple";
+      ctx.fillRect(pistaDificil[pistaDificil.length-1].x - 12, pistaDificil[pistaDificil.length-1].y - 20, 24, 40);
+      ctx.restore();
     }
 
-    // --- Inicializar generación ---
-    function startRace() {
-      // Eliminar coches viejos
-      for (let c of cars) scene.remove(c);
-      cars = [];
-      brains = [];
-      velocities = [];
-      angles = [];
-      scores = [];
-      finished = [];
-
-      // Crear coches nuevos
-      for (let i=0; i<NUM_CARS; ++i) {
-        const color = new THREE.Color().setHSL(i/NUM_CARS, 0.7, 0.55).getHex();
-        cars.push(createCar(color));
-        if (bestBrains.length) {
-          let base = clonarRed(bestBrains[Math.floor(Math.random()*bestBrains.length)]);
-          mutarRed(base);
-          brains.push(base);
-        } else {
-          brains.push(crearRed());
-        }
-        velocities.push(0.8 + Math.random()*0.2); // arranque suave
-        angles.push(Math.PI/2);
-        scores.push(0);
-        finished.push(false);
-        // Posición de arranque
-        cars[i].position.copy(trackShape[0]);
-        cars[i].rotation.y = 0;
-      }
-      if (bestBrains.length) {
-        brains[0] = clonarRed(bestBrains[0]); // El mejor va igual
-      }
-      gen++;
-      document.getElementById('genInfo').textContent = 'Generación: ' + gen;
-      animateRace();
-    }
-
-    // --- Animación y lógica IA ---
-    let stepCount = 0;
-    function animateRace() {
-      stepCount = 0;
-      function step() {
-        let anyRunning = false;
-        for (let i=0; i<cars.length; ++i) {
-          if (finished[i]) continue;
-          // Sensores
-          const pos = cars[i].position;
-          const angle = angles[i];
-
-          // Distancia y ángulo a meta
-          const goal = trackShape[0];
-          const vecToGoal = new THREE.Vector3().subVectors(goal, pos);
-          const distGoal = vecToGoal.length()/200; // Normalizado
-          const angGoal = Math.atan2(vecToGoal.x, vecToGoal.z) - angle;
-
-          // Sensores
-          const sensors = getSensors(pos, angle);
-
-          // Inputs a la red
-          const input = [
-            ...sensors,
-            velocities[i]/MAX_SPEED,
-            Math.sin(angGoal),
-            distGoal
-          ];
-          let [steer, accel] = brains[i].activate(input);
-
-          // Actualizar dirección y velocidad
-          if (steer < 0.45) angles[i] -= STEER_ANGLE;
-          else if (steer > 0.55) angles[i] += STEER_ANGLE;
-          velocities[i] += (accel-0.5)*0.15;
-          velocities[i] = Math.max(0, Math.min(MAX_SPEED, velocities[i]));
-
-          // Mover coche
-          cars[i].rotation.y = -angles[i];
-          cars[i].position.x += velocities[i]*Math.sin(angles[i]);
-          cars[i].position.z += velocities[i]*Math.cos(angles[i]);
-
-          // Puntos por acercarse a meta
-          scores[i] = 1000 - pos.distanceTo(goal);
-
-          // Terminar si llega a meta
-          if (pos.distanceTo(goal) < 12) {
-            finished[i] = true;
-            scores[i] += 10000;
-          }
-
-          // Limitar pista: si se sale, termina
-          if (!isOnTrack(pos)) {
-            finished[i] = true;
-            scores[i] -= 300;
-          }
-
-          // Si sigue en carrera
-          if (!finished[i]) anyRunning = true;
-        }
-        renderer.render(scene, camera);
-
-        // Cámara sigue al mejor coche
-        const bestIdx = scores.indexOf(Math.max(...scores));
-        camera.position.lerp(new THREE.Vector3(
-          cars[bestIdx].position.x + 40,
-          55,
-          cars[bestIdx].position.z + 60
-        ), 0.08);
-        camera.lookAt(cars[bestIdx].position.x, 4, cars[bestIdx].position.z);
-
-        stepCount++;
-        if (anyRunning && stepCount < 850) requestAnimationFrame(step);
-        else nextGeneration();
-      }
-      step();
-    }
-
-    // --- Chequeo si está en pista ---
-    function isOnTrack(pos) {
-      // Simple: cerca del tubo
+    // Utilidad para saber si un punto está sobre una pista
+    function carOnTrack(x, y, pista) {
       let minDist = Infinity;
-      for (let t=0; t<=1; t+=0.02) {
-        const p = curve.getPoint(t);
-        const dist = pos.distanceTo(p);
-        if (dist<minDist) minDist = dist;
+      for(let i=0; i<pista.length-1; i++) {
+        let ax = pista[i].x, ay = pista[i].y;
+        let bx = pista[i+1].x, by = pista[i+1].y;
+        let dx = bx-ax, dy = by-ay;
+        let t = ((x-ax)*dx + (y-ay)*dy) / (dx*dx+dy*dy);
+        t = Math.max(0, Math.min(1, t));
+        let px = ax + t*dx;
+        let py = ay + t*dy;
+        let dist = Math.sqrt((x-px)**2 + (y-py)**2);
+        if(dist<minDist) minDist = dist;
       }
-      return minDist <= 14;
+      return minDist <= TRACK_WIDTH/2 - 5;
     }
 
-    // --- Evolución: selecciona los mejores y repite ---
-    function nextGeneration() {
-      // Selecciona los mejores
-      let idx = Array.from(Array(cars.length).keys());
-      idx.sort((a,b)=>scores[b]-scores[a]);
-      bestBrains = [];
-      for (let i=0; i<NUM_GEN; ++i) bestBrains.push(clonarRed(brains[idx[i]]));
-      // Siguiente generación en 2s
-      setTimeout(startRace, 1200);
+    function drawCar(x, y, color, angle = 0) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.fillStyle = color;
+      ctx.fillRect(-14, -7, 28, 14);
+      ctx.fillStyle = "#222";
+      ctx.fillRect(-6, -5, 12, 10);
+      ctx.fillStyle = "#555";
+      ctx.fillRect(-16, -3, 4, 6);
+      ctx.fillRect(12, -3, 6, 6);
+      ctx.restore();
     }
 
-    // --- Inicialización ---
-    camera.position.set(0, 76, 210);
-    camera.lookAt(0,0,0);
-    startRace();
+    function drawTrail(trail, color) {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.4;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      if (trail.length > 0) {
+        ctx.moveTo(trail[0].x, trail[0].y);
+        for (let p of trail) ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+
+    // Distancia entre dos puntos
+    function distancia(a, b) {
+      return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+    }
+
+    // Sensores
+    function sensorDistanciaBorde(x, y, angle, pista, step = 3, maxDist = 60) {
+      for (let d = 0; d < maxDist; d += step) {
+        let px = x + Math.cos(angle) * d;
+        let py = y + Math.sin(angle) * d;
+        if (!carOnTrack(px, py, pista)) return d / maxDist;
+      }
+      return 1;
+    }
+
+    // IA y simulación
+    let coches = [];
+    let generacion = 1;
+    let mejoresRedes = [];
+    let numMejores = 4;
+    let mejorHist = null;
+
+    function iniciarCarrera() {
+      coches = [];
+      const n = parseInt(document.getElementById("numCars").value, 10);
+      let colores = [];
+      for (let i = 0; i < n; i++)
+        colores.push(`hsl(${(i * 360) / n}, 80%, 50%)`);
+      for (let i = 0; i < n; i++) {
+        let coche = crearCoche(colores[i]);
+        coche.fase = 0;
+        if (mejoresRedes.length > 0) {
+          let base = clonarRed(mejoresRedes[Math.floor(Math.random()*mejoresRedes.length)]);
+          let tasaMutacion = generacion < 15 ? 0.35 : 0.15;
+          let probMutacion = generacion < 15 ? 0.35 : 0.15;
+          mutarRed(base, tasaMutacion, probMutacion);
+          coche.red = base;
+        } else {
+          mutarRed(coche.red, 0.35, 0.35);
+        }
+        coches.push(coche);
+      }
+      if (mejorHist) {
+        coches[0].red = clonarRed(mejorHist);
+      }
+      document.getElementById("genInfo").textContent = `Generación: ${generacion}`;
+      correrCarrera();
+    }
+
+    function correrCarrera() {
+      let paso = 0;
+      let carreraActiva = true;
+      function mover() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawTracks();
+        let algunoMoviendo = false;
+        for (let car of coches) {
+          // Pista y meta según fase
+          let pista = car.fase === 0 ? pistaFacil : pistaDificil;
+          let goal = pista[pista.length-1];
+
+          if (!car.terminado && !car.crashed && paso < numSteps) {
+            let dx = goal.x - car.pos.x;
+            let dy = goal.y - car.pos.y;
+            let angleToGoal = Math.atan2(dy, dx);
+            let angleDiff = angleToGoal - car.angle;
+            while (angleDiff > Math.PI) angleDiff -= 2*Math.PI;
+            while (angleDiff < -Math.PI) angleDiff += 2*Math.PI;
+            let sensorIzq = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle - Math.PI/2, pista);
+            let sensorDer = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle + Math.PI/2, pista);
+            let sensorFrontal = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle, pista);
+            let input = [
+              dx / canvas.width,
+              dy / canvas.height,
+              angleDiff / Math.PI,
+              sensorIzq,
+              sensorDer,
+              sensorFrontal
+            ];
+            let [giro, aceleracion] = car.red.activate(input);
+
+            // Nueva lógica de velocidad/aceleración/frenado
+            if (aceleracion > 0.55) {
+              car.velocidad += ACCELERATION;
+            } else if (aceleracion < 0.45) {
+              car.velocidad -= BRAKE;
+            } else {
+              car.velocidad *= 0.98; // leve desaceleración
+            }
+            car.velocidad = Math.max(0, Math.min(car.velocidad, 15));
+            if (giro < 0.45) car.angle -= 0.07;
+            else if (giro > 0.55) car.angle += 0.07;
+
+            car.pos.x += car.velocidad * Math.cos(car.angle);
+            car.pos.y += car.velocidad * Math.sin(car.angle);
+
+            car.trail.push({ x: car.pos.x, y: car.pos.y });
+
+            // Si sale de pista
+            if (!carOnTrack(car.pos.x, car.pos.y, pista)) {
+              car.crashed = true;
+              car.terminado = true;
+              car.score -= 300;
+            }
+
+            // Meta
+            if (distancia(car.pos, goal) < 16) {
+              if (car.fase === 0) {
+                car.score += 5000;
+                // Teleporta a pista difícil
+                car.fase = 1;
+                car.pos = {x: pistaDificil[0].x, y: pistaDificil[0].y};
+                car.trail = [{x: car.pos.x, y: car.pos.y}];
+                car.angle = 0;
+                car.velocidad = 0;
+                continue;
+              } else {
+                car.terminado = true;
+                car.score += 10000 - car.trail.length * 2;
+              }
+            }
+            algunoMoviendo = true;
+          }
+          drawTrail(car.trail, car.color);
+          drawCar(car.pos.x, car.pos.y, car.crashed ? "#f00" : car.color, car.angle);
+        }
+        paso++;
+        if (algunoMoviendo && paso <= numSteps) {
+          requestAnimationFrame(mover);
+        } else if (carreraActiva) {
+          carreraActiva = false;
+          evaluarYPrepararSiguienteGen();
+        }
+      }
+      mover();
+    }
+
+    function evaluarYPrepararSiguienteGen() {
+      for (let car of coches) {
+        let pista = car.fase === 0 ? pistaFacil : pistaDificil;
+        let goal = pista[pista.length-1];
+        let d = distancia(car.pos, goal);
+        car.score += Math.max(0, 700 - d * 1.3);
+        if (car.crashed) car.score -= 90;
+      }
+      coches.sort((a, b) => b.score - a.score);
+      mejoresRedes = [];
+      for (let i = 0; i < numMejores && i < coches.length; i++) {
+        mejoresRedes.push(clonarRed(coches[i].red));
+      }
+      if (!mejorHist || coches[0].score > mejorHist.score) {
+        mejorHist = clonarRed(coches[0].red);
+        mejorHist.score = coches[0].score;
+      }
+      generacion++;
+      if (autoMode) {
+        setTimeout(() => iniciarCarrera(), 300);
+      }
+    }
+
+    // Modo automático
+    let autoMode = false;
+    const autoModeBtn = document.getElementById('autoModeBtn');
+    autoModeBtn.addEventListener('click', function() {
+      autoMode = !autoMode;
+      if (autoMode) {
+        autoModeBtn.classList.add("active");
+        iniciarCarrera();
+      } else {
+        autoModeBtn.classList.remove("active");
+      }
+    });
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawTracks();
   </script>
 </body>
 </html>
