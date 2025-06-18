@@ -7,7 +7,7 @@
     body { font-family: sans-serif; text-align: center; margin: 0; }
     #controls { margin: 20px; }
     canvas { background: #e0e0e0; display: block; margin: 0 auto; border: 2px solid #444; }
-    #autoModeBtn.active {
+    #autoModeBtn.active, #drawModeBtn.active {
       background: blue;
       color: white;
     }
@@ -21,6 +21,7 @@
     <button onclick="entrenar()">Correr carrera</button>
     <button onclick="volverHacerCarrera()">Volver a hacer carrera</button>
     <button id="autoModeBtn">Modo Automático</button>
+    <button id="drawModeBtn">Modo Dibujo</button>
   </div>
   <canvas id="game" width="800" height="400"></canvas>
   <script>
@@ -40,6 +41,52 @@
       {x: 700, y: 320}
     ];
     const TRACK_WIDTH = 56;
+
+    // ----------- NUEVO: Modo Dibujo -----------
+    let drawMode = false;
+    let drawing = false;
+    let drawPoints = [];
+    const drawModeBtn = document.getElementById('drawModeBtn');
+
+    drawModeBtn.addEventListener('click', function() {
+      drawMode = !drawMode;
+      drawModeBtn.classList.toggle("active", drawMode);
+      if(drawMode) {
+        drawPoints = [];
+        canvas.addEventListener('mousedown', startDraw);
+        canvas.addEventListener('mousemove', drawMove);
+        canvas.addEventListener('mouseup', endDraw);
+      } else {
+        canvas.removeEventListener('mousedown', startDraw);
+        canvas.removeEventListener('mousemove', drawMove);
+        canvas.removeEventListener('mouseup', endDraw);
+        drawTrack();
+      }
+    });
+
+    function startDraw(e) {
+      drawing = true;
+      drawPoints = [];
+      const rect = canvas.getBoundingClientRect();
+      drawPoints.push({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    }
+    function drawMove(e) {
+      if (!drawing) return;
+      const rect = canvas.getBoundingClientRect();
+      drawPoints.push({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      drawTrack();
+      // Dibuja la línea sobre la pista
+      ctx.beginPath();
+      ctx.moveTo(drawPoints[0].x, drawPoints[0].y);
+      for (let p of drawPoints) ctx.lineTo(p.x, p.y);
+      ctx.strokeStyle = "orange";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+    function endDraw(e) {
+      drawing = false;
+    }
+    // ----------- FIN MODO DIBUJO -----------
 
     function drawTrack() {
       ctx.save();
@@ -75,6 +122,16 @@
       ctx.fillRect(goal.x - 12, goal.y - 20, 24, 10);
       ctx.fillRect(goal.x - 12, goal.y + 10, 24, 10);
 
+      // ----------- Dibuja línea del usuario si existe -----------
+      if (drawPoints.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(drawPoints[0].x, drawPoints[0].y);
+        for (let p of drawPoints) ctx.lineTo(p.x, p.y);
+        ctx.strokeStyle = "orange";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+      // -----------------------------------------------------------
       ctx.restore();
     }
 
@@ -165,7 +222,9 @@
           color: `hsl(${(i * 360) / n}, 80%, 50%)`,
           terminado: false,
           score: 0,
-          crashed: false
+          crashed: false,
+          centralidad: 0,
+          bonusLinea: 0
         };
         if (bestPath && (i < Math.floor(n/2))) { // NUEVO: la mitad hereda el mejor path
           coche.path = mutarPath(bestPath);
@@ -233,6 +292,33 @@
               car.path.push({ dx: dir.dx, dy: dir.dy, da: dir.da });
               car.trail.push({ x: car.pos.x, y: car.pos.y });
 
+              // -------------- BONUS CENTRALIDAD --------------
+              let minDistToCenter = Infinity;
+              for (let i = 0; i < trackPath.length - 1; i++) {
+                let ax = trackPath[i].x, ay = trackPath[i].y;
+                let bx = trackPath[i+1].x, by = trackPath[i+1].y;
+                let dx = bx-ax, dy = by-ay;
+                let t = ((car.pos.x-ax)*dx + (car.pos.y-ay)*dy) / (dx*dx+dy*dy);
+                t = Math.max(0, Math.min(1, t));
+                let px = ax + t*dx;
+                let py = ay + t*dy;
+                let dist = Math.sqrt((car.pos.x-px)**2 + (car.pos.y-py)**2);
+                if (dist < minDistToCenter) minDistToCenter = dist;
+              }
+              car.centralidad = (car.centralidad || 0) + (TRACK_WIDTH/2 - minDistToCenter);
+
+              // -------------- BONUS SIGUE LÍNEA DIBUJADA --------------
+              let bonusLinea = 0;
+              if (drawPoints.length > 1) {
+                let minDistLinea = Infinity;
+                for(let p of drawPoints){
+                  let dist = Math.sqrt((car.pos.x - p.x)**2 + (car.pos.y - p.y)**2);
+                  if(dist < minDistLinea) minDistLinea = dist;
+                }
+                if(minDistLinea < 12) bonusLinea = 5; // Puedes ajustar este valor
+              }
+              car.bonusLinea = (car.bonusLinea || 0) + bonusLinea;
+
               if (!carOnTrack(car.pos.x, car.pos.y)) {
                 car.crashed = true;
                 car.terminado = true;
@@ -260,6 +346,10 @@
                 car.score = Math.max(0, 500 - d);
               }
               if (car.crashed) car.score -= 100;
+
+              // -------------- SUMA BONUS AL SCORE FINAL --------------
+              car.score += (car.centralidad || 0) * 0.05; // Ajusta el multiplicador si quieres
+              car.score += (car.bonusLinea || 0);
             }
             coches.sort((a, b) => b.score - a.score);
 
@@ -324,6 +414,33 @@
               car.pos.y += dir.dx * Math.sin(car.angle) + dir.dy;
               car.trail.push({ x: car.pos.x, y: car.pos.y });
 
+              // -------------- BONUS CENTRALIDAD --------------
+              let minDistToCenter = Infinity;
+              for (let i = 0; i < trackPath.length - 1; i++) {
+                let ax = trackPath[i].x, ay = trackPath[i].y;
+                let bx = trackPath[i+1].x, by = trackPath[i+1].y;
+                let dx = bx-ax, dy = by-ay;
+                let t = ((car.pos.x-ax)*dx + (car.pos.y-ay)*dy) / (dx*dx+dy*dy);
+                t = Math.max(0, Math.min(1, t));
+                let px = ax + t*dx;
+                let py = ay + t*dy;
+                let dist = Math.sqrt((car.pos.x-px)**2 + (car.pos.y-py)**2);
+                if (dist < minDistToCenter) minDistToCenter = dist;
+              }
+              car.centralidad = (car.centralidad || 0) + (TRACK_WIDTH/2 - minDistToCenter);
+
+              // -------------- BONUS SIGUE LÍNEA DIBUJADA --------------
+              let bonusLinea = 0;
+              if (drawPoints.length > 1) {
+                let minDistLinea = Infinity;
+                for(let p of drawPoints){
+                  let dist = Math.sqrt((car.pos.x - p.x)**2 + (car.pos.y - p.y)**2);
+                  if(dist < minDistLinea) minDistLinea = dist;
+                }
+                if(minDistLinea < 12) bonusLinea = 5;
+              }
+              car.bonusLinea = (car.bonusLinea || 0) + bonusLinea;
+
               if (!carOnTrack(car.pos.x, car.pos.y)) {
                 car.crashed = true;
                 car.terminado = true;
@@ -351,6 +468,10 @@
                 car.score = Math.max(0, 500 - d);
               }
               if (car.crashed) car.score -= 100;
+
+              // -------------- SUMA BONUS AL SCORE FINAL --------------
+              car.score += (car.centralidad || 0) * 0.05;
+              car.score += (car.bonusLinea || 0);
             }
             coches.sort((a, b) => b.score - a.score);
 
