@@ -210,7 +210,7 @@
       });
     }
 
-    // Elitismo reforzado: la mitad de los coches heredan el mejor path
+    // TODOS los coches heredan el mejor path mutado
     function generarCoches(n, heredanDe = null, bestPath = null) {
       let coches = [];
       for (let i = 0; i < n; i++) {
@@ -226,10 +226,8 @@
           centralidad: 0,
           bonusLinea: 0
         };
-        if (bestPath && (i < Math.floor(n/2))) { // NUEVO: la mitad hereda el mejor path
+        if (bestPath) {
           coche.path = mutarPath(bestPath);
-        } else if (heredanDe && heredanDe[i]) {
-          coche.path = mutarPath(heredanDe[i].path);
         } else {
           coche.path = [];
         }
