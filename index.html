@@ -28,19 +28,30 @@
   <script>
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
-    const start = { x: 80, y: 200 };
-    const goal = { x: 700, y: 320 };
-    const numSteps = 120; // Más pasos para compensar menor velocidad
-    const trackPath = [
-      {x: 80, y: 200},
-      {x: 200, y: 160},
-      {x: 330, y: 120},
-      {x: 460, y: 120},
-      {x: 580, y: 200},
-      {x: 640, y: 260},
-      {x: 700, y: 320}
+
+    // ----- Definición de pistas -----
+    const pistas = [
+      [ // Pista 0: Recta y fácil
+        {x: 80, y: 200},
+        {x: 700, y: 200}
+      ],
+      [ // Pista 1: Más complicada
+        {x: 80, y: 200},
+        {x: 200, y: 160},
+        {x: 330, y: 120},
+        {x: 460, y: 120},
+        {x: 580, y: 200},
+        {x: 640, y: 260},
+        {x: 700, y: 320}
+      ]
     ];
-    const TRACK_WIDTH = 56;
+    let fase = 0; // 0 = pista fácil, 1 = pista complicada
+    let trackPath = pistas[fase];
+
+    const TRACK_WIDTH = 90; // Más ancho para la pista fácil
+    let start = { x: trackPath[0].x, y: trackPath[0].y };
+    let goal = { x: trackPath[trackPath.length-1].x, y: trackPath[trackPath.length-1].y };
+    const numSteps = 120; // Más pasos para compensar menor velocidad
 
     // ----- SENSORES -----
     function sensorDistanciaBorde(x, y, angle, step = 3, maxDist = 60) {
@@ -54,8 +65,6 @@
 
     // Red Neuronal: entradas = dx, dy, anguloRelativo, sensorIzq, sensorDer, sensorFrontal
     function crearRedNeuronal() {
-      // 6 entradas: dx, dy, anguloRelativo, sensorIzq, sensorDer, sensorFrontal
-      // 8 neuronas ocultas, 2 salidas
       return new synaptic.Architect.Perceptron(6, 8, 2);
     }
 
@@ -82,7 +91,8 @@
         terminado: false,
         crashed: false,
         score: 0,
-        red: crearRedNeuronal()
+        red: crearRedNeuronal(),
+        fase: 0 // cada coche sabe en qué fase está
       };
     }
 
@@ -193,6 +203,11 @@
     let mejorHist = null; // Elitismo permanente
 
     function iniciarCarrera() {
+      fase = 0;
+      trackPath = pistas[fase];
+      start = { x: trackPath[0].x, y: trackPath[0].y };
+      goal = { x: trackPath[trackPath.length-1].x, y: trackPath[trackPath.length-1].y };
+
       const n = parseInt(document.getElementById("numCars").value, 10);
       let colores = [];
       for (let i = 0; i < n; i++)
@@ -200,20 +215,18 @@
       coches = [];
       for (let i = 0; i < n; i++) {
         let coche = crearCoche(colores[i]);
+        coche.fase = 0;
         if (mejoresRedes.length > 0) {
           let base = clonarRed(mejoresRedes[Math.floor(Math.random()*mejoresRedes.length)]);
-          // Tasa de mutación dinámica: más alta en primeras generaciones
           let tasaMutacion = generacion < 15 ? 0.35 : 0.15;
           let probMutacion = generacion < 15 ? 0.35 : 0.15;
           mutarRed(base, tasaMutacion, probMutacion);
           coche.red = base;
         } else {
-          // Variación inicial si es la primera generación
           mutarRed(coche.red, 0.35, 0.35);
         }
         coches.push(coche);
       }
-      // Añade siempre la mejor red histórica (elitismo permanente)
       if (mejorHist) {
         coches[0].red = clonarRed(mejorHist);
       }
@@ -237,7 +250,7 @@
             while (angleDiff < -Math.PI) angleDiff += 2*Math.PI;
             let sensorIzq = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle - Math.PI/2);
             let sensorDer = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle + Math.PI/2);
-            let sensorFrontal = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle); // NUEVO sensor frontal
+            let sensorFrontal = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle);
             let input = [
               dx / canvas.width,
               dy / canvas.height,
@@ -250,23 +263,38 @@
             if (giro < 0.45) car.angle -= 0.07;
             else if (giro > 0.55) car.angle += 0.07;
             if (aceleracion > 0.5) {
-              car.pos.x += 5 * Math.cos(car.angle); // VELOCIDAD REDUCIDA
+              car.pos.x += 5 * Math.cos(car.angle);
               car.pos.y += 5 * Math.sin(car.angle);
             }
             car.trail.push({ x: car.pos.x, y: car.pos.y });
 
-            // --- PREMIO POR IR CENTRADO EN LA PISTA ---
             let distCentro = distanciaAlCentro(car.pos.x, car.pos.y);
             car.score += Math.max(0, 10 - distCentro);
 
             if (!carOnTrack(car.pos.x, car.pos.y)) {
               car.crashed = true;
               car.terminado = true;
-              car.score -= 300; // Penalización más fuerte por chocar
+              car.score -= 300;
             }
+            // --- Meta y cambio de pista ---
             if (distancia(car.pos, goal) < 16) {
-              car.terminado = true;
-              car.score += 1000 - car.trail.length;
+              if (car.fase === 0) {
+                car.score += 5000; // ¡Mogollón de puntos!
+                // Cambia a la pista complicada
+                car.fase = 1;
+                trackPath = pistas[1];
+                start = { x: trackPath[0].x, y: trackPath[0].y };
+                goal = { x: trackPath[trackPath.length-1].x, y: trackPath[trackPath.length-1].y };
+                // Teletransporta el coche al inicio de la nueva pista
+                car.pos = {x: start.x, y: start.y};
+                car.trail = [{x: start.x, y: start.y}];
+                car.angle = 0;
+                // No termina, sigue compitiendo en la pista difícil
+                continue;
+              } else {
+                car.terminado = true;
+                car.score += 10000 - car.trail.length * 2; // Doble de puntos en la difícil
+              }
             }
             algunoMoviendo = true;
           }
@@ -287,16 +315,14 @@
     function evaluarYPrepararSiguienteGen() {
       for (let car of coches) {
         let d = distancia(car.pos, goal);
-        // Score: recompensa más si se acerca a la meta, menos penalización por choque
         car.score += Math.max(0, 700 - d * 1.3);
-        if (car.crashed) car.score -= 90; // Penalización adicional al final
+        if (car.crashed) car.score -= 90;
       }
       coches.sort((a, b) => b.score - a.score);
       mejoresRedes = [];
       for (let i = 0; i < numMejores && i < coches.length; i++) {
         mejoresRedes.push(clonarRed(coches[i].red));
       }
-      // Guarda la mejor red histórica
       if (!mejorHist || coches[0].score > mejorHist.score) {
         mejorHist = clonarRed(coches[0].red);
         mejorHist.score = coches[0].score;
