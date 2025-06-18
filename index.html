@@ -19,7 +19,7 @@
   <h2>Carrera IA F1: IA con Sensores Evolutivos</h2>
   <div id="controls">
     <label for="numCars">Número de IAs: </label>
-    <input id="numCars" type="number" min="1" max="50" value="12" style="width: 60px;">
+    <input id="numCars" type="number" min="1" max="100" value="20" style="width: 60px;">
     <button onclick="iniciarCarrera()">Iniciar carrera</button>
     <button id="autoModeBtn">Modo Automático</button>
     <span id="genInfo"></span>
@@ -166,11 +166,28 @@
       return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
     }
 
+    // --- CALCULAR DISTANCIA AL CENTRO DE LA PISTA ---
+    function distanciaAlCentro(x, y) {
+      let minDist = Infinity;
+      for (let i = 0; i < trackPath.length - 1; i++) {
+        let ax = trackPath[i].x, ay = trackPath[i].y;
+        let bx = trackPath[i + 1].x, by = trackPath[i + 1].y;
+        let dx = bx - ax, dy = by - ay;
+        let t = ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy);
+        t = Math.max(0, Math.min(1, t));
+        let px = ax + t * dx;
+        let py = ay + t * dy;
+        let dist = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
+        if (dist < minDist) minDist = dist;
+      }
+      return minDist;
+    }
+
     // --- Algoritmo evolutivo con sensores extras ---
     let coches = [];
     let generacion = 1;
     let mejoresRedes = [];
-    let numMejores = 8;
+    let numMejores = 4; // Ahora solo 4 mejores pasan a la siguiente generación
     let mejorHist = null; // Elitismo permanente
 
     function iniciarCarrera() {
@@ -183,7 +200,10 @@
         let coche = crearCoche(colores[i]);
         if (mejoresRedes.length > 0) {
           let base = clonarRed(mejoresRedes[Math.floor(Math.random()*mejoresRedes.length)]);
-          mutarRed(base, 0.1, 0.1); // Tasa de mutación menor
+          // Tasa de mutación dinámica: más alta en primeras generaciones
+          let tasaMutacion = generacion < 10 ? 0.3 : 0.1;
+          let probMutacion = generacion < 10 ? 0.3 : 0.1;
+          mutarRed(base, tasaMutacion, probMutacion);
           coche.red = base;
         } else {
           // Variación inicial si es la primera generación
@@ -230,6 +250,12 @@
               car.pos.y += 10 * Math.sin(car.angle);
             }
             car.trail.push({ x: car.pos.x, y: car.pos.y });
+
+            // --- PREMIO POR IR CENTRADO EN LA PISTA ---
+            let distCentro = distanciaAlCentro(car.pos.x, car.pos.y);
+            // Entre más cerca del centro, mayor score. Ajusta el 10 al ancho de tu pista.
+            car.score += Math.max(0, 10 - distCentro);
+
             if (!carOnTrack(car.pos.x, car.pos.y)) {
               car.crashed = true;
               car.terminado = true;
