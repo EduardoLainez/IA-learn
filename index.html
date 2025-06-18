@@ -11,11 +11,8 @@
       background: blue;
       color: white;
     }
-    #paintModeBtn.active {
-      background: green;
-      color: white;
-    }
   </style>
+  <!-- Synaptic.js para redes neuronales -->
   <script src="https://cdn.jsdelivr.net/npm/synaptic@1.1.4/dist/synaptic.min.js"></script>
 </head>
 <body>
@@ -25,11 +22,6 @@
     <input id="numCars" type="number" min="1" max="100" value="20" style="width: 60px;">
     <button onclick="iniciarCarrera()">Iniciar carrera</button>
     <button id="autoModeBtn">Modo Automático</button>
-    <button id="paintModeBtn">Modo Pintar: OFF</button>
-    <label>
-      <input type="checkbox" id="useCustomTrack">
-      Usar pista pintada
-    </label>
     <span id="genInfo"></span>
   </div>
   <canvas id="game" width="1200" height="400"></canvas>
@@ -37,73 +29,13 @@
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
 
-    // --- Modo Pintar ---
-    let paintMode = false;
-    let painting = false;
-    let customTrack = [];
-    const paintModeBtn = document.getElementById('paintModeBtn');
-    const useCustomTrackBox = document.getElementById('useCustomTrack');
-
-    paintModeBtn.addEventListener('click', () => {
-      paintMode = !paintMode;
-      paintModeBtn.textContent = `Modo Pintar: ${paintMode ? 'ON' : 'OFF'}`;
-      if (paintMode) {
-        paintModeBtn.classList.add("active");
-        customTrack = [];
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        drawTracks();
-      } else {
-        paintModeBtn.classList.remove("active");
-      }
-    });
-
-    function getMousePos(e) {
-      const rect = canvas.getBoundingClientRect();
-      return {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      };
-    }
-
-    canvas.addEventListener('mousedown', (e) => {
-      if (!paintMode) return;
-      painting = true;
-      const pos = getMousePos(e);
-      customTrack.push(pos);
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y);
-    });
-
-    canvas.addEventListener('mousemove', (e) => {
-      if (!painting || !paintMode) return;
-      const pos = getMousePos(e);
-      customTrack.push(pos);
-      ctx.lineTo(pos.x, pos.y);
-      ctx.strokeStyle = "#0a0";
-      ctx.lineWidth = 6;
-      ctx.stroke();
-    });
-
-    canvas.addEventListener('mouseup', (e) => {
-      if (!paintMode) return;
-      painting = false;
-      ctx.closePath();
-      if (customTrack.length > 1) {
-        ctx.beginPath();
-        ctx.moveTo(customTrack[0].x, customTrack[0].y);
-        for (let p of customTrack) ctx.lineTo(p.x, p.y);
-        ctx.strokeStyle = "#090";
-        ctx.lineWidth = 10;
-        ctx.stroke();
-        ctx.closePath();
-      }
-    });
-
-    // --- Definición de pistas ---
+    // --- Definición de pistas (la difícil ahora es más suave y ancha) ---
+    // Pista fácil (izquierda)
     const pistaFacil = [
       {x: 80, y: 120},
       {x: 520, y: 120}
     ];
+    // Pista difícil (derecha, curva circular)
     const pistaDificil = [
       {x: 680, y: 120},
       {x: 900, y: 120},
@@ -119,11 +51,14 @@
     ];
     const pistas = [pistaFacil, pistaDificil];
 
-    const ACCELERATION = 1.0;
-    const BRAKE = 1.2;
-    const TRACK_WIDTH = 130;
+    // --- Ajustes de aceleración y frenado ---
+    const ACCELERATION = 1.0; // Más fuerte
+    const BRAKE = 1.2;        // Más fuerte
+
+    const TRACK_WIDTH = 130;  // Más ancho para ambas pistas
     const numSteps = 150;
 
+    // --- Red neuronal y coches ---
     function crearRedNeuronal() {
       return new synaptic.Architect.Perceptron(6, 8, 2);
     }
@@ -140,11 +75,10 @@
       return synaptic.Network.fromJSON(red.toJSON());
     }
     function crearCoche(color) {
-      let start = (useCustomTrackBox.checked && customTrack.length > 0) ? customTrack[0] : pistaFacil[0];
       return {
-        pos: { x: start.x, y: start.y },
+        pos: { x: pistaFacil[0].x, y: pistaFacil[0].y },
         angle: 0,
-        trail: [{ x: start.x, y: start.y }],
+        trail: [{ x: pistaFacil[0].x, y: pistaFacil[0].y }],
         color,
         terminado: false,
         crashed: false,
@@ -156,6 +90,7 @@
     }
 
     function drawTracks() {
+      // Pista fácil
       ctx.save();
       ctx.strokeStyle = "#222";
       ctx.lineWidth = TRACK_WIDTH;
@@ -179,9 +114,11 @@
         ctx.lineTo(pistaFacil[i+1].x-nx*TRACK_WIDTH/2, pistaFacil[i+1].y-ny*TRACK_WIDTH/2);
       }
       ctx.stroke();
+      // Meta fácil
       ctx.fillStyle = "green";
       ctx.fillRect(pistaFacil[pistaFacil.length-1].x - 12, pistaFacil[pistaFacil.length-1].y - 20, 24, 40);
 
+      // Pista difícil (a la derecha)
       ctx.strokeStyle = "#a22";
       ctx.lineWidth = TRACK_WIDTH;
       ctx.beginPath();
@@ -204,27 +141,14 @@
         ctx.lineTo(pistaDificil[i+1].x-nx*TRACK_WIDTH/2, pistaDificil[i+1].y-ny*TRACK_WIDTH/2);
       }
       ctx.stroke();
+      // Meta difícil
       ctx.fillStyle = "purple";
       ctx.fillRect(pistaDificil[pistaDificil.length-1].x - 12, pistaDificil[pistaDificil.length-1].y - 20, 24, 40);
-
-      if (customTrack.length > 1) {
-        ctx.beginPath();
-        ctx.moveTo(customTrack[0].x, customTrack[0].y);
-        for(let i=1; i<customTrack.length; i++){
-          ctx.lineTo(customTrack[i].x, customTrack[i].y);
-        }
-        ctx.strokeStyle = "#0a0";
-        ctx.lineWidth = 14;
-        ctx.globalAlpha = 0.6;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-        ctx.closePath();
-      }
       ctx.restore();
     }
 
-    // Calcula la distancia del coche a la pista (línea central)
-    function distanciaAPista(x, y, pista) {
+    // Utilidad para saber si un punto está sobre una pista
+    function carOnTrack(x, y, pista) {
       let minDist = Infinity;
       for(let i=0; i<pista.length-1; i++) {
         let ax = pista[i].x, ay = pista[i].y;
@@ -237,12 +161,7 @@
         let dist = Math.sqrt((x-px)**2 + (y-py)**2);
         if(dist<minDist) minDist = dist;
       }
-      return minDist;
-    }
-
-    // Utilidad para saber si un punto está sobre una pista
-    function carOnTrack(x, y, pista, ancho=TRACK_WIDTH) {
-      return distanciaAPista(x, y, pista) <= ancho/2 - 5;
+      return minDist <= TRACK_WIDTH/2 - 5;
     }
 
     function drawCar(x, y, color, angle = 0) {
@@ -274,15 +193,17 @@
       ctx.restore();
     }
 
+    // Distancia entre dos puntos
     function distancia(a, b) {
       return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
     }
 
-    function sensorDistanciaBorde(x, y, angle, pista, step = 3, maxDist = 60, ancho=TRACK_WIDTH) {
+    // Sensores
+    function sensorDistanciaBorde(x, y, angle, pista, step = 3, maxDist = 60) {
       for (let d = 0; d < maxDist; d += step) {
         let px = x + Math.cos(angle) * d;
         let py = y + Math.sin(angle) * d;
-        if (!carOnTrack(px, py, pista, ancho)) return d / maxDist;
+        if (!carOnTrack(px, py, pista)) return d / maxDist;
       }
       return 1;
     }
@@ -329,9 +250,8 @@
         drawTracks();
         let algunoMoviendo = false;
         for (let car of coches) {
-          let usarPersonalizada = useCustomTrackBox.checked && customTrack.length > 1;
-          let pista = usarPersonalizada ? customTrack : (car.fase === 0 ? pistaFacil : pistaDificil);
-          let ancho = usarPersonalizada ? 28 : TRACK_WIDTH;
+          // Pista y meta según fase
+          let pista = car.fase === 0 ? pistaFacil : pistaDificil;
           let goal = pista[pista.length-1];
 
           if (!car.terminado && !car.crashed && paso < numSteps) {
@@ -341,9 +261,9 @@
             let angleDiff = angleToGoal - car.angle;
             while (angleDiff > Math.PI) angleDiff -= 2*Math.PI;
             while (angleDiff < -Math.PI) angleDiff += 2*Math.PI;
-            let sensorIzq = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle - Math.PI/2, pista, 3, 60, ancho);
-            let sensorDer = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle + Math.PI/2, pista, 3, 60, ancho);
-            let sensorFrontal = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle, pista, 3, 60, ancho);
+            let sensorIzq = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle - Math.PI/2, pista);
+            let sensorDer = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle + Math.PI/2, pista);
+            let sensorFrontal = sensorDistanciaBorde(car.pos.x, car.pos.y, car.angle, pista);
             let input = [
               dx / canvas.width,
               dy / canvas.height,
@@ -354,12 +274,13 @@
             ];
             let [giro, aceleracion] = car.red.activate(input);
 
+            // Nueva lógica de velocidad/aceleración/frenado
             if (aceleracion > 0.55) {
               car.velocidad += ACCELERATION;
             } else if (aceleracion < 0.45) {
               car.velocidad -= BRAKE;
             } else {
-              car.velocidad *= 0.98;
+              car.velocidad *= 0.98; // leve desaceleración
             }
             car.velocidad = Math.max(0, Math.min(car.velocidad, 15));
             if (giro < 0.45) car.angle -= 0.07;
@@ -370,39 +291,18 @@
 
             car.trail.push({ x: car.pos.x, y: car.pos.y });
 
-            // --- RECOMPENSA MODIFICADA ---
-            // Si es pista pintada: recompensa solo por cercanía, NO se choca por alejarse
-            // Si es pista normal, mantiene lógica antigua
-            let distLinea = distanciaAPista(car.pos.x, car.pos.y, pista);
-            if (usarPersonalizada) {
-              // Entre más cerca, más puntos (máx 10, mínimo 0)
-              let maxReward = 10;
-              let reward = Math.max(0, maxReward - distLinea);
-              car.score += reward;
-            } else {
-              if (distLinea < 10) {
-                car.score += 10;
-              } else if (distLinea < 20) {
-                car.score += 5;
-              } else if (distLinea < 35) {
-                car.score += 1;
-              } else {
-                car.score -= 2;
-              }
-              if (distLinea > ancho/2 - 5) {
-                car.crashed = true;
-                car.terminado = true;
-                car.score -= 1000;
-                let distToGoal = distancia(car.pos, goal);
-                car.score -= distToGoal * 2;
-              }
+            // Si sale de pista
+            if (!carOnTrack(car.pos.x, car.pos.y, pista)) {
+              car.crashed = true;
+              car.terminado = true;
+              car.score -= 300;
             }
-            // --- FIN RECOMPENSA MODIFICADA ---
 
-            // Llegar a meta
-            if (distancia(car.pos, goal) < (usarPersonalizada ? 18 : 16)) {
-              if (!usarPersonalizada && car.fase === 0) {
+            // Meta
+            if (distancia(car.pos, goal) < 16) {
+              if (car.fase === 0) {
                 car.score += 5000;
+                // Teleporta a pista difícil
                 car.fase = 1;
                 car.pos = {x: pistaDificil[0].x, y: pistaDificil[0].y};
                 car.trail = [{x: car.pos.x, y: car.pos.y}];
@@ -432,8 +332,7 @@
 
     function evaluarYPrepararSiguienteGen() {
       for (let car of coches) {
-        let usarPersonalizada = useCustomTrackBox.checked && customTrack.length > 1;
-        let pista = usarPersonalizada ? customTrack : (car.fase === 0 ? pistaFacil : pistaDificil);
+        let pista = car.fase === 0 ? pistaFacil : pistaDificil;
         let goal = pista[pista.length-1];
         let d = distancia(car.pos, goal);
         car.score += Math.max(0, 700 - d * 1.3);
