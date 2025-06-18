@@ -29,19 +29,25 @@
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
 
-    // --- Definición de pistas (ambas visibles, la difícil empieza recta) ---
+    // --- Definición de pistas (la difícil ahora es más suave y ancha) ---
     // Pista fácil (izquierda)
     const pistaFacil = [
       {x: 80, y: 120},
       {x: 520, y: 120}
     ];
-    // Pista difícil (derecha, empieza con un recta larga)
+    // Pista difícil (derecha, curva circular)
     const pistaDificil = [
       {x: 680, y: 120},
-      {x: 1100, y: 120}, // Recta larga para que reaccionen
-      {x: 1100, y: 200},
-      {x: 900, y: 300},
-      {x: 700, y: 200}
+      {x: 900, y: 120},
+      {x: 1000, y: 130},
+      {x: 1080, y: 160},
+      {x: 1120, y: 200},
+      {x: 1100, y: 250},
+      {x: 1050, y: 280},
+      {x: 950, y: 300},
+      {x: 850, y: 280},
+      {x: 780, y: 230},
+      {x: 720, y: 180}
     ];
     const pistas = [pistaFacil, pistaDificil];
 
@@ -49,7 +55,7 @@
     const ACCELERATION = 1.0; // Más fuerte
     const BRAKE = 1.2;        // Más fuerte
 
-    const TRACK_WIDTH = 90;
+    const TRACK_WIDTH = 130;  // Más ancho para ambas pistas
     const numSteps = 150;
 
     // --- Red neuronal y coches ---
