@@ -370,28 +370,36 @@
 
             car.trail.push({ x: car.pos.x, y: car.pos.y });
 
-            // --- NUEVA RECOMPENSA: Aproximarse y seguir la línea pintada es bueno ---
+            // --- RECOMPENSA MODIFICADA ---
+            // Si es pista pintada: recompensa solo por cercanía, NO se choca por alejarse
+            // Si es pista normal, mantiene lógica antigua
             let distLinea = distanciaAPista(car.pos.x, car.pos.y, pista);
-            if (distLinea < 10) {
-              car.score += 10; // máxima recompensa
-            } else if (distLinea < 20) {
-              car.score += 5;
-            } else if (distLinea < 35) {
-              car.score += 1;
+            if (usarPersonalizada) {
+              // Entre más cerca, más puntos (máx 10, mínimo 0)
+              let maxReward = 10;
+              let reward = Math.max(0, maxReward - distLinea);
+              car.score += reward;
             } else {
-              car.score -= 2; // penaliza si está lejos
+              if (distLinea < 10) {
+                car.score += 10;
+              } else if (distLinea < 20) {
+                car.score += 5;
+              } else if (distLinea < 35) {
+                car.score += 1;
+              } else {
+                car.score -= 2;
+              }
+              if (distLinea > ancho/2 - 5) {
+                car.crashed = true;
+                car.terminado = true;
+                car.score -= 1000;
+                let distToGoal = distancia(car.pos, goal);
+                car.score -= distToGoal * 2;
+              }
             }
-            // Si se aleja demasiado: penalización dura y termina
-            if (distLinea > ancho/2 - 5) {
-              car.crashed = true;
-              car.terminado = true;
-              car.score -= 1000;
-              // Penaliza extra por lo lejos que estaba de la meta
-              let distToGoal = distancia(car.pos, goal);
-              car.score -= distToGoal * 2;
-            }
-            // --- FIN RECOMPENSA ---
+            // --- FIN RECOMPENSA MODIFICADA ---
 
+            // Llegar a meta
             if (distancia(car.pos, goal) < (usarPersonalizada ? 18 : 16)) {
               if (!usarPersonalizada && car.fase === 0) {
                 car.score += 5000;
